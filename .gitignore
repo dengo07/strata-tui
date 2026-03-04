@@ -1,0 +1,13 @@
+# Build artifacts
+build/
+
+# Claude-specific
+CLAUDE.md
+.claude/
+
+# Editor
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
