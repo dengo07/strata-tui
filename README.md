@@ -45,20 +45,49 @@ make
 
 CMake discovers all source files via `GLOB_RECURSE`. After adding a new `.cpp` file, re-run `cmake ..` from the build directory.
 
+### Install system-wide (like ncurses)
+
+```bash
+git clone https://github.com/dengo07/strata-tui
+cd strata-tui
+mkdir build && cd build
+cmake .. -DCMAKE_INSTALL_PREFIX=/usr/local
+make -j$(nproc)
+sudo make install
+```
+
+This installs:
+- `libstrata.a` → `/usr/local/lib/`
+- Headers → `/usr/local/include/Strata/`
+- CMake package → `/usr/local/lib/cmake/Strata/`
+- pkg-config file → `/usr/local/lib/pkgconfig/strata.pc`
+
 ### Linking your own project
 
+**Option A — CMake (recommended)**
+
 ```cmake
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(NCURSES REQUIRED ncursesw panelw)
+cmake_minimum_required(VERSION 3.16)
+project(MyApp LANGUAGES CXX)
+set(CMAKE_CXX_STANDARD 17)
 
-target_include_directories(myapp PRIVATE path/to/strata/include)
-target_link_libraries(myapp PRIVATE strata ${NCURSES_LIBRARIES})
+find_package(Strata REQUIRED)
+
+add_executable(myapp main.cpp)
+target_link_libraries(myapp PRIVATE Strata::strata)
 ```
 
-Or link manually:
+**Option B — pkg-config**
 
+```bash
+g++ -std=c++17 main.cpp -o myapp $(pkg-config --cflags --libs strata)
 ```
-g++ -std=c++17 myapp.cpp -o myapp -lncursesw -ltinfo -lpanelw
+
+**Option C — embed as subdirectory (no install needed)**
+
+```cmake
+add_subdirectory(path/to/strata-tui)
+target_link_libraries(myapp PRIVATE strata)
 ```
 
 ### Two include modes

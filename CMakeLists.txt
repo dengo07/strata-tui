@@ -17,8 +17,10 @@ file(GLOB_RECURSE STRATA_SOURCES
 
 add_library(strata STATIC ${STRATA_SOURCES})
 target_include_directories(strata
-    PUBLIC  "${CMAKE_SOURCE_DIR}/include"
-            ${NCURSESW_INCLUDE_DIRS}
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+        $<INSTALL_INTERFACE:include>
+        ${NCURSESW_INCLUDE_DIRS}
     PRIVATE "${CMAKE_SOURCE_DIR}/src"
 )
 target_link_libraries(strata PUBLIC ${NCURSESW_LIBRARIES} ${PANELW_LIBRARIES})
@@ -26,3 +28,52 @@ target_compile_options(strata PRIVATE -Wall -Wextra -Wpedantic)
 
 add_executable(strata_test test.cpp)
 target_link_libraries(strata_test PRIVATE strata)
+
+# ── Install ──────────────────────────────────────────────────────────────────
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+install(TARGETS strata
+    EXPORT StrataTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+
+install(DIRECTORY include/Strata
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+
+install(EXPORT StrataTargets
+    FILE StrataTargets.cmake
+    NAMESPACE Strata::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Strata
+)
+
+configure_package_config_file(
+    "${CMAKE_SOURCE_DIR}/cmake/StrataConfig.cmake.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/StrataConfig.cmake"
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Strata
+)
+
+write_basic_package_version_file(
+    "${CMAKE_CURRENT_BINARY_DIR}/StrataConfigVersion.cmake"
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+
+install(FILES
+    "${CMAKE_CURRENT_BINARY_DIR}/StrataConfig.cmake"
+    "${CMAKE_CURRENT_BINARY_DIR}/StrataConfigVersion.cmake"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/Strata
+)
+
+# pkg-config file (so users can also use pkg-config --libs strata)
+configure_file(
+    "${CMAKE_SOURCE_DIR}/cmake/strata.pc.in"
+    "${CMAKE_CURRENT_BINARY_DIR}/strata.pc"
+    @ONLY
+)
+
+install(FILES "${CMAKE_CURRENT_BINARY_DIR}/strata.pc"
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/pkgconfig
+)

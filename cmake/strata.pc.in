@@ -1,0 +1,9 @@
+prefix=@CMAKE_INSTALL_PREFIX@
+libdir=${prefix}/@CMAKE_INSTALL_LIBDIR@
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@
+
+Name: Strata
+Description: C++17 retained-mode TUI framework
+Version: @PROJECT_VERSION@
+Libs: -L${libdir} -lstrata -lncursesw -lpanelw
+Cflags: -I${includedir}
