@@ -456,6 +456,7 @@ class ScrollView {
     mutable strata::ScrollView** ref_       = nullptr;
 public:
     explicit ScrollView(std::initializer_list<Node> children) : children_(children) {}
+    explicit ScrollView(std::vector<Node> children) : children_(std::move(children)) {}
 
     ScrollView& size(strata::Constraint c)     { size_      = c;            return *this; }
     ScrollView& tab_index(int i)               { tab_index_ = i;            return *this; }
