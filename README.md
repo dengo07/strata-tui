@@ -402,14 +402,16 @@ int main() {
 
 ### 2d. Dashboard with Async Updates
 
-Three live metrics (CPU / Memory / Network) with color-coded status labels, a `Spinner` for visual feedback, and fluctuating simulated values — all updated via `run_async`.
+Three live metrics read from the Linux `/proc` filesystem — CPU usage, memory pressure, and network throughput — with color-coded status labels and a `Spinner` for visual feedback.
 
 ```cpp
 #include <Strata/ui.hpp>
 using namespace strata::ui;
 #include <memory>
 #include <array>
-#include <cmath>
+#include <fstream>
+#include <sstream>
+#include <algorithm>
 
 int main() {
     App app;
@@ -473,26 +475,93 @@ int main() {
           .cross_align(Layout::Align::Center)
     });
 
-    app.set_interval(1000, [&]{
+    // Delta state for CPU and network (only accessed from the bg thread)
+    struct ProcState {
+        long long cpu_idle  = 0;
+        long long cpu_total = 0;
+        long long net_bytes = 0;
+    };
+    auto state = std::make_shared<ProcState>();
+
+    struct Vals { float cpu = 0, mem = 0, net = 0; std::string info; };
+
+    app.set_interval(1000, [&, state]{
         ++tick;
-        auto vals = std::make_shared<std::array<float, 3>>();
+        auto vals = std::make_shared<Vals>();
         app.run_async(
-            // Background thread — simulate a slow measurement; must NOT touch widgets
-            [vals, tick]{
-                (*vals)[0] = 0.30f + 0.55f * std::abs(std::sin(tick * 0.7f));
-                (*vals)[1] = 0.45f + 0.40f * std::abs(std::sin(tick * 0.4f));
-                (*vals)[2] = 0.05f + 0.70f * std::abs(std::sin(tick * 1.2f));
+            // Background thread — reads /proc files; must NOT touch widgets
+            [vals, state]{
+                // CPU: /proc/stat first line
+                {
+                    std::ifstream f("/proc/stat");
+                    std::string line;
+                    std::getline(f, line); // "cpu  user nice system idle iowait irq softirq steal ..."
+                    std::istringstream ss(line.substr(5));
+                    long long u, n, s, idle, iowait, irq, softirq, steal;
+                    ss >> u >> n >> s >> idle >> iowait >> irq >> softirq >> steal;
+                    long long total    = u + n + s + idle + iowait + irq + softirq + steal;
+                    long long idle_all = idle + iowait;
+                    if (state->cpu_total > 0) {
+                        long long dt = total    - state->cpu_total;
+                        long long di = idle_all - state->cpu_idle;
+                        vals->cpu = dt > 0 ? std::max(0.0f, (float)(dt - di) / dt) : 0.0f;
+                    }
+                    state->cpu_total = total;
+                    state->cpu_idle  = idle_all;
+                }
+                // Memory: /proc/meminfo
+                {
+                    std::ifstream f("/proc/meminfo");
+                    std::string line;
+                    long long mem_total = 0, mem_avail = 0;
+                    while (std::getline(f, line)) {
+                        if (line.compare(0, 9, "MemTotal:") == 0)
+                            std::istringstream(line.substr(9)) >> mem_total;
+                        else if (line.compare(0, 13, "MemAvailable:") == 0)
+                            std::istringstream(line.substr(13)) >> mem_avail;
+                        if (mem_total && mem_avail) break;
+                    }
+                    vals->mem = mem_total > 0
+                        ? std::min(1.0f, (float)(mem_total - mem_avail) / mem_total)
+                        : 0.0f;
+                }
+                // Network: /proc/net/dev, summed across interfaces, capped at 10 MB/s
+                {
+                    std::ifstream f("/proc/net/dev");
+                    std::string line;
+                    std::getline(f, line); // header 1
+                    std::getline(f, line); // header 2
+                    long long bytes = 0;
+                    while (std::getline(f, line)) {
+                        std::istringstream ns(line);
+                        std::string iface;
+                        ns >> iface;
+                        if (iface == "lo:") continue;
+                        long long rx; ns >> rx;
+                        long long dummy;
+                        for (int j = 0; j < 7; ++j) ns >> dummy;
+                        long long tx; ns >> tx;
+                        bytes += rx + tx;
+                    }
+                    if (state->net_bytes > 0) {
+                        long long db = std::max(0LL, bytes - state->net_bytes);
+                        vals->net = std::min(1.0f, (float)db / (10.0f * 1024 * 1024));
+                    }
+                    state->net_bytes = bytes;
+                }
+                vals->info = "  CPU " + std::to_string((int)(vals->cpu * 100)) + "%"
+                           + "  Mem " + std::to_string((int)(vals->mem * 100)) + "%"
+                           + "  Net " + std::to_string((int)(vals->net * 10)) + " MB/s";
             },
             // Main thread — safe to call widget setters
             [&, vals]{
-                float c = (*vals)[0], m = (*vals)[1], n = (*vals)[2];
-                if (cpu_bar) cpu_bar->set_value(c);
-                if (mem_bar) mem_bar->set_value(m);
-                if (net_bar) net_bar->set_value(n);
-                if (cpu_st) { cpu_st->set_text(threshold_text(c)); cpu_st->set_style(threshold_style(c)); }
-                if (mem_st) { mem_st->set_text(threshold_text(m)); mem_st->set_style(threshold_style(m)); }
-                if (net_st) { net_st->set_text(threshold_text(n)); net_st->set_style(threshold_style(n)); }
-                if (info_lbl) info_lbl->set_text("  Updated " + std::to_string(tick) + "×");
+                if (cpu_bar) cpu_bar->set_value(vals->cpu);
+                if (mem_bar) mem_bar->set_value(vals->mem);
+                if (net_bar) net_bar->set_value(vals->net);
+                if (cpu_st) { cpu_st->set_text(threshold_text(vals->cpu)); cpu_st->set_style(threshold_style(vals->cpu)); }
+                if (mem_st) { mem_st->set_text(threshold_text(vals->mem)); mem_st->set_style(threshold_style(vals->mem)); }
+                if (net_st) { net_st->set_text(threshold_text(vals->net)); net_st->set_style(threshold_style(vals->net)); }
+                if (info_lbl) info_lbl->set_text(vals->info);
             }
         );
     });
@@ -511,11 +580,12 @@ int main() {
 - Pass data through a `shared_ptr<T>`: bg thread writes, on_done reads.
 
 **Key ideas:**
-- **Multiple bound pointers**: three `ProgressBar*` and three status `Label*` — all updated from the same `on_done` callback, which runs on the main thread.
+- **`ProcState` for deltas**: CPU usage and network throughput require two consecutive readings to compute a rate. `ProcState` is a `shared_ptr` captured in the interval lambda, written exclusively by the bg thread, so no concurrent access occurs.
+- **CPU from `/proc/stat`**: parse `user nice system idle iowait irq softirq steal` from the first line; usage = `(Δtotal − Δidle) / Δtotal`.
+- **Memory from `/proc/meminfo`**: `(MemTotal − MemAvailable) / MemTotal`; no delta needed.
+- **Network from `/proc/net/dev`**: sum `rx_bytes + tx_bytes` across all non-loopback interfaces; divide byte delta by 10 MB/s to normalize to 0–1.
 - **`set_style()` for live color**: each status label's color changes every update to reflect the current threshold — `set_style()` calls `mark_dirty()` internally.
-- **Fluctuating simulation**: values use `std::sin(tick * speed)` so bars move realistically. Replace with real `/proc/stat` reads for production.
 - **Spinner with `auto_animate(true)`**: drives itself every N render calls — no extra timer needed for the animation.
-- **`run_async` + `shared_ptr`**: the background "measurement" and the main-thread UI update are always separated; the `shared_ptr<array>` is the only safe handoff channel.
 
 ---
 
