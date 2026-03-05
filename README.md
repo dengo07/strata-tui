@@ -227,45 +227,80 @@ int main() {
 
 ### 2c. To-Do List
 
-An `Input` for adding items displayed in a scrollable list, wrapped in a styled panel.
+An `Input` for adding items, `Checkbox` slots for toggling completion, a `Select` filter, and a modal confirmation for deletion — all in a scrollable panel.
 
 ```cpp
 #include <Strata/ui.hpp>
 using namespace strata::ui;
 #include <vector>
 #include <string>
+#include <algorithm>
 
 static const int MAX_ITEMS = 64;
 
 int main() {
     App app;
-    std::vector<std::string> items;
 
-    std::vector<strata::Label*> slots(MAX_ITEMS, nullptr);
-    strata::Input* input_widget = nullptr;
+    struct Item { std::string text; bool done = false; };
+    std::vector<Item> items;
+    std::vector<int>  view;   // filtered indices into items
+    int cursor = 0;           // last-interacted slot position in view
+    int confirm_id = -1;
 
+    strata::Label*  stats_lbl    = nullptr;
+    strata::Input*  input_widget = nullptr;
+    strata::Select* filter_sel   = nullptr;
+
+    std::vector<strata::Checkbox*> slots(MAX_ITEMS, nullptr);
     std::vector<Node> slot_nodes;
     slot_nodes.reserve(MAX_ITEMS);
-    for (int i = 0; i < MAX_ITEMS; ++i)
+    for (int i = 0; i < MAX_ITEMS; ++i) {
         slot_nodes.push_back(
-            Label("").size(fixed(1))
-                     .style(Style{}.with_fg(color::BrightWhite))
-                     .bind(slots[i])
+            Checkbox("")
+                .size(fixed(1))
+                .group("list")
+                .bind(slots[i])
+                .change([&, i](bool checked){
+                    cursor = i;
+                    if (i < (int)view.size())
+                        items[view[i]].done = checked;
+                    int done = (int)std::count_if(items.begin(), items.end(),
+                                    [](const Item& it){ return it.done; });
+                    if (stats_lbl)
+                        stats_lbl->set_text(std::to_string(done) + "/" +
+                                            std::to_string(items.size()) + " done");
+                })
         );
+    }
 
     auto refresh = [&]{
-        for (int i = 0; i < MAX_ITEMS; ++i) {
-            if (slots[i])
-                slots[i]->set_text(i < (int)items.size()
-                    ? "  • " + items[i]
-                    : "");
+        int mode = filter_sel ? filter_sel->selected() : 0;
+        view.clear();
+        for (int i = 0; i < (int)items.size(); ++i) {
+            if (mode == 0) view.push_back(i);
+            else if (mode == 1 && !items[i].done) view.push_back(i);
+            else if (mode == 2 &&  items[i].done) view.push_back(i);
         }
+        for (int s = 0; s < MAX_ITEMS; ++s) {
+            if (!slots[s]) continue;
+            if (s < (int)view.size()) {
+                slots[s]->set_label(" " + items[view[s]].text);
+                slots[s]->set_checked(items[view[s]].done);
+            } else {
+                slots[s]->set_label("");
+                slots[s]->set_checked(false);
+            }
+        }
+        int done = (int)std::count_if(items.begin(), items.end(),
+                        [](const Item& it){ return it.done; });
+        if (stats_lbl)
+            stats_lbl->set_text(std::to_string(done) + "/" +
+                                std::to_string(items.size()) + " done");
     };
 
     populate(app, {
-        Block("To-Do List")
+        Block(" To-Do List ")
             .border(Style{}.with_fg(color::Cyan).with_bold())
-            .focused_border(Style{}.with_fg(color::BrightCyan).with_bold())
             .inner(
                 Col({
                     Row({
@@ -277,15 +312,28 @@ int main() {
                             .bind(input_widget)
                             .submit([&](const std::string& val){
                                 if (!val.empty() && (int)items.size() < MAX_ITEMS) {
-                                    items.push_back(val);
+                                    items.push_back({val, false});
                                     input_widget->set_value("");
                                     refresh();
                                 }
                             }),
                     }).size(fixed(1)),
+                    Row({
+                        Label(" Filter: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(9)),
+                        Select()
+                            .items({"All", "Active", "Done"})
+                            .group("filter")
+                            .size(fill())
+                            .bind(filter_sel)
+                            .change([&](int, const std::string&){ refresh(); }),
+                        Label("").style(Style{}.with_fg(color::BrightBlack))
+                            .size(fixed(10)).bind(stats_lbl),
+                    }).size(fixed(1)),
                     Label("").size(fixed(1)),
-                    ScrollView(std::move(slot_nodes))
-                        .group("list")
+                    ScrollView(std::move(slot_nodes)).group("list"),
+                    Label("  Tab: switch section  ·  d: delete item")
+                        .style(Style{}.with_fg(color::BrightBlack))
+                        .size(fixed(1)),
                 })
             )
     });
@@ -293,7 +341,46 @@ int main() {
     refresh();
 
     app.on_event = [&](const Event& e) {
+        if (app.has_modal()) return;
         if (is_char(e, 'q')) app.quit();
+        if (is_char(e, 'd') && cursor < (int)view.size()) {
+            const std::string item_text = items[view[cursor]].text;
+            confirm_id = app.open_modal(
+                ModalDesc()
+                    .title(" Delete Item ")
+                    .size(44, 8)
+                    .border(Style{}.with_fg(color::Red))
+                    .on_close([&]{ app.close_modal(confirm_id); })
+                    .inner(
+                        Col({
+                            Label("  Delete \"" + item_text + "\"?")
+                                .style(Style{}.with_fg(color::White))
+                                .size(fixed(1)),
+                            Label("").size(fixed(1)),
+                            Row({
+                                Button("Yes")
+                                    .style(Style{}.with_bg(color::Red).with_fg(color::White).with_bold())
+                                    .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
+                                    .click([&]{
+                                        app.close_modal(confirm_id);
+                                        if (cursor < (int)view.size()) {
+                                            items.erase(items.begin() + view[cursor]);
+                                            if (cursor > 0) --cursor;
+                                            refresh();
+                                        }
+                                    })
+                                    .size(fixed(10)).cross(fixed(4)),
+                                Button("No")
+                                    .style(Style{}.with_bg(color::BrightBlack).with_fg(color::White))
+                                    .focused_style(Style{}.with_bg(color::White).with_fg(color::Black))
+                                    .click([&]{ app.close_modal(confirm_id); })
+                                    .size(fixed(10)).cross(fixed(4)),
+                            }).gap(2).justify(Layout::Justify::Center).size(fixed(4)),
+                        }).justify(Layout::Justify::Center)
+                    )
+                    .build_modal()
+            );
+        }
     };
 
     app.run();
@@ -301,63 +388,105 @@ int main() {
 ```
 
 **Key ideas:**
-- **Pre-allocated slots**: instead of dynamically adding/removing widgets (not supported at runtime), allocate the maximum number of labels upfront and blank out unused ones. The `refresh` lambda syncs them to the data model.
-- **Bullet prefix**: items are displayed as `  • text` — update just the label text in `refresh`, no widget reconstruction needed.
-- **Focus groups**: `.group("input")` / `.group("list")` — Tab jumps between the input field and the scroll list; arrow keys navigate within each group. See [Focus Groups](#3e-focus--focus-groups).
-- **`ScrollView`**: scrollable vertical container; j/k/↑↓ scroll by 1 line, PgDn/PgUp by a page.
+- **Checkbox slots** replace Labels — Space/Enter toggles the item done/undone; the `change` callback also records `cursor` (last-interacted slot position in the view).
+- **`view[]` + filter**: `Select` drives a mode (All/Active/Done); `refresh()` rebuilds `view` and re-syncs all slots on every change.
+- **Stats label** is a plain `Label*` updated by `refresh()` — no special widget needed, just a bound pointer and `set_text()`.
+- **Modal confirmation** for delete: press `d` to open a two-button dialog; Tab cycles between Yes/No; Escape closes without deleting. See [Modal with confirmation](#modal-with-confirmation).
+- **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
 
 ### 2d. Dashboard with Async Updates
 
-Polling a value in the background and updating a progress bar on the main thread, inside a styled panel.
+Three live metrics (CPU / Memory / Network) with color-coded status labels, a `Spinner` for visual feedback, and fluctuating simulated values — all updated via `run_async`.
 
 ```cpp
 #include <Strata/ui.hpp>
 using namespace strata::ui;
 #include <memory>
-#include <thread>
-#include <chrono>
+#include <array>
+#include <cmath>
 
 int main() {
     App app;
-    strata::ProgressBar* pb    = nullptr;
-    strata::Label*       lbl   = nullptr;
+    int tick = 0;
+
+    strata::ProgressBar* cpu_bar  = nullptr;
+    strata::ProgressBar* mem_bar  = nullptr;
+    strata::ProgressBar* net_bar  = nullptr;
+    strata::Label*       cpu_st   = nullptr;
+    strata::Label*       mem_st   = nullptr;
+    strata::Label*       net_st   = nullptr;
+    strata::Label*       info_lbl = nullptr;
+
+    auto threshold_style = [](float v) -> Style {
+        if (v < 0.6f) return Style{}.with_fg(color::BrightGreen);
+        if (v < 0.8f) return Style{}.with_fg(color::BrightYellow);
+        return Style{}.with_fg(color::BrightRed).with_bold();
+    };
+    auto threshold_text = [](float v) -> std::string {
+        if (v < 0.6f) return "  OK ";
+        if (v < 0.8f) return "WARN ";
+        return "CRIT!";
+    };
 
     populate(app, {
         Col({
-            Block("System Monitor")
+            Block(" System Monitor ")
                 .border(Style{}.with_fg(color::Blue).with_bold())
                 .inner(
                     Col({
-                        Label("CPU Usage")
-                            .style(Style{}.with_fg(color::BrightWhite).with_bold())
-                            .size(fixed(1)),
-                        ProgressBar().size(fixed(1)).bind(pb),
+                        Row({
+                            Label("CPU    ").style(Style{}.with_fg(color::BrightWhite).with_bold()).size(fixed(8)),
+                            ProgressBar().size(fill()).bind(cpu_bar),
+                            Label("  OK ").style(Style{}.with_fg(color::BrightGreen)).size(fixed(6)).bind(cpu_st),
+                        }).size(fixed(1)),
                         Label("").size(fixed(1)),
-                        Label("Waiting for first sample…")
-                            .style(Style{}.with_fg(color::BrightBlack))
-                            .size(fixed(1))
-                            .bind(lbl),
+                        Row({
+                            Label("Memory ").style(Style{}.with_fg(color::BrightWhite).with_bold()).size(fixed(8)),
+                            ProgressBar().size(fill()).bind(mem_bar),
+                            Label("  OK ").style(Style{}.with_fg(color::BrightGreen)).size(fixed(6)).bind(mem_st),
+                        }).size(fixed(1)),
+                        Label("").size(fixed(1)),
+                        Row({
+                            Label("Network").style(Style{}.with_fg(color::BrightWhite).with_bold()).size(fixed(8)),
+                            ProgressBar().size(fill()).bind(net_bar),
+                            Label("  OK ").style(Style{}.with_fg(color::BrightGreen)).size(fixed(6)).bind(net_st),
+                        }).size(fixed(1)),
+                        Label("").size(fixed(1)),
+                        Row({
+                            Spinner("").auto_animate(true, 4).size(fixed(3)),
+                            Label("Waiting for first sample…")
+                                .style(Style{}.with_fg(color::BrightBlack))
+                                .size(fill())
+                                .bind(info_lbl),
+                        }).size(fixed(1)),
                     })
                 )
-                .size(fixed(8))
-                .cross(fixed(48)),
+                .size(fixed(13))
+                .cross(fixed(56)),
         }).justify(Layout::Justify::Center)
           .cross_align(Layout::Align::Center)
     });
 
     app.set_interval(1000, [&]{
-        auto result = std::make_shared<float>(0.0f);
+        ++tick;
+        auto vals = std::make_shared<std::array<float, 3>>();
         app.run_async(
-            // Background thread — must NOT touch widgets
-            [result]{
-                std::this_thread::sleep_for(std::chrono::milliseconds(200));
-                *result = 0.42f;  // replace with real measurement
+            // Background thread — simulate a slow measurement; must NOT touch widgets
+            [vals, tick]{
+                (*vals)[0] = 0.30f + 0.55f * std::abs(std::sin(tick * 0.7f));
+                (*vals)[1] = 0.45f + 0.40f * std::abs(std::sin(tick * 0.4f));
+                (*vals)[2] = 0.05f + 0.70f * std::abs(std::sin(tick * 1.2f));
             },
             // Main thread — safe to call widget setters
-            [&, result]{
-                if (pb)  pb->set_value(*result);
-                if (lbl) lbl->set_text("Last reading: " +
-                    std::to_string((int)(*result * 100)) + "%");
+            [&, vals]{
+                float c = (*vals)[0], m = (*vals)[1], n = (*vals)[2];
+                if (cpu_bar) cpu_bar->set_value(c);
+                if (mem_bar) mem_bar->set_value(m);
+                if (net_bar) net_bar->set_value(n);
+                if (cpu_st) { cpu_st->set_text(threshold_text(c)); cpu_st->set_style(threshold_style(c)); }
+                if (mem_st) { mem_st->set_text(threshold_text(m)); mem_st->set_style(threshold_style(m)); }
+                if (net_st) { net_st->set_text(threshold_text(n)); net_st->set_style(threshold_style(n)); }
+                if (info_lbl) info_lbl->set_text("  Updated " + std::to_string(tick) + "×");
             }
         );
     });
@@ -374,7 +503,13 @@ int main() {
 - `bg_fn` runs on a detached thread. Never touch any widget inside it.
 - `on_done` is queued and runs on the main thread ≤ 16 ms after `bg_fn` returns.
 - Pass data through a `shared_ptr<T>`: bg thread writes, on_done reads.
-- Bind two pointers (`pb`, `lbl`) to update both the bar and a status line from the same callback.
+
+**Key ideas:**
+- **Multiple bound pointers**: three `ProgressBar*` and three status `Label*` — all updated from the same `on_done` callback, which runs on the main thread.
+- **`set_style()` for live color**: each status label's color changes every update to reflect the current threshold — `set_style()` calls `mark_dirty()` internally.
+- **Fluctuating simulation**: values use `std::sin(tick * speed)` so bars move realistically. Replace with real `/proc/stat` reads for production.
+- **Spinner with `auto_animate(true)`**: drives itself every N render calls — no extra timer needed for the animation.
+- **`run_async` + `shared_ptr`**: the background "measurement" and the main-thread UI update are always separated; the `shared_ptr<array>` is the only safe handoff channel.
 
 ---
 
