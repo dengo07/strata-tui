@@ -48,6 +48,7 @@ void Block::render(Canvas& canvas) {
     const Style& border = use_focused ? focused_border_style_ : border_style_;
     const Style& title  = use_focused ? focused_title_style_  : title_style_;
 
+    canvas.fill(U' ', border);
     canvas.draw_border(border);
     if (!title_.empty()) {
         canvas.draw_title(title_, title);

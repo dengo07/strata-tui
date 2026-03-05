@@ -227,6 +227,8 @@ class Button {
     std::string              label_;
     strata::Style            style_;
     strata::Style            focused_style_;
+    strata::Style            shadow_style_;
+    bool                     has_shadow_  = false;
     strata::Constraint       size_      = strata::Constraint::fill();
     strata::Constraint       cross_     = strata::Constraint::fill();
     std::function<void()>    on_click_;
@@ -238,6 +240,7 @@ public:
 
     Button& style(strata::Style s)          { style_         = s;            return *this; }
     Button& focused_style(strata::Style s)  { focused_style_ = s;            return *this; }
+    Button& shadow(strata::Style s)         { shadow_style_  = s; has_shadow_ = true; return *this; }
     Button& size(strata::Constraint c)      { size_          = c;            return *this; }
     Button& cross(strata::Constraint c)     { cross_         = c;            return *this; }
     Button& click(std::function<void()> f)  { on_click_      = std::move(f); return *this; }
@@ -250,6 +253,7 @@ public:
         auto w = std::make_unique<strata::Button>(label_);
         if (style_         != kDefault) w->set_style(style_);
         if (focused_style_ != kDefault) w->set_focused_style(focused_style_);
+        if (has_shadow_)                w->set_shadow_style(shadow_style_);
         if (on_click_) w->on_click = on_click_;
         w->tab_index = tab_index_;
         if (!focus_group_.empty()) w->set_focus_group(focus_group_);

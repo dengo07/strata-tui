@@ -119,10 +119,10 @@ int App::open_modal(std::unique_ptr<Modal> m) {
 void App::close_modal(int id) {
     for (std::size_t i = 0; i < modal_ids_.size(); ++i) {
         if (modal_ids_[i] == id) {
+            focus_->pop_scope();
             if (modals_[i]->inner()) unmount_all(modals_[i]->inner());
             modals_.erase(modals_.begin() + i);
             modal_ids_.erase(modal_ids_.begin() + i);
-            focus_->pop_scope();
             root_->mark_dirty();
             return;
         }

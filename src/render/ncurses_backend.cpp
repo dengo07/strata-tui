@@ -64,7 +64,10 @@ short NcursesBackend::resolve_color(const Color& color) const {
         using T = std::decay_t<decltype(c)>;
         if constexpr (std::is_same_v<T, NamedColor>) {
             if (c.is_default()) return -1; // terminal default
-            return static_cast<short>(c.base_index());
+            short idx = static_cast<short>(c.value);
+            // Use full 0-15 range when available; fall back to 0-7 on 8-color terminals
+            if (idx >= 8 && COLORS < 16) idx = static_cast<short>(c.base_index());
+            return idx;
         } else {
             // RgbColor
             if (can_256_) {
@@ -140,18 +143,14 @@ void NcursesBackend::render_cell(int x, int y, const Cell& cell) {
     short bg = resolve_color(cell.style.bg);
     short pair_id = (has_colors()) ? alloc_pair(fg, bg) : 0;
 
-    attr_t attrs = COLOR_PAIR(pair_id);
+    // Color pair is passed separately to setcchar — do NOT include COLOR_PAIR() in attrs
+    attr_t attrs = 0;
     if (cell.style.bold)      attrs |= A_BOLD;
     if (cell.style.italic)    attrs |= A_ITALIC;
     if (cell.style.underline) attrs |= A_UNDERLINE;
     if (cell.style.dim)       attrs |= A_DIM;
     if (cell.style.blink)     attrs |= A_BLINK;
     if (cell.style.reverse)   attrs |= A_REVERSE;
-
-    // Handle bright colors via A_BOLD
-    if (const auto* nc = std::get_if<NamedColor>(&cell.style.fg)) {
-        if (nc->is_bright()) attrs |= A_BOLD;
-    }
 
     wchar_t wch[2] = { static_cast<wchar_t>(cell.ch), L'\0' };
     cchar_t cc;

@@ -105,7 +105,7 @@ int main() {
         if (app.has_modal()) return;
         auto m = ModalDesc{}
             .title(" Confirm Quit ")
-            .size(42, 9)
+            .size(42, 13)
             .border(Style{}.with_fg(color::Yellow).with_bold())
             .overlay(Style{}.with_bg(color::Black).with_fg(color::BrightBlack))
             .on_close([&]{ app.close_modal(quit_modal_id); })
@@ -120,15 +120,19 @@ int main() {
                         .size(fixed(1)),
                     Label{""}.size(fill()),
                     Row{
-                        Button{"  [ Quit ]  "}
+                        Button{"[ Quit ]"}
+                            .style(Style{}.with_fg(color::Black).with_bg(color::Red).with_bold())
+                            .focused_style(Style{}.with_fg(color::BrightWhite).with_bg(color::BrightRed).with_bold())
+                            .shadow(Style{}.with_bg(color::rgb(0,0,0)))
                             .click([&]{ app.quit(); })
-                            .focused_style(Style{}.with_fg(color::BrightRed).with_bold())
                             .tab_index(0),
-                        Button{"  [ Cancel ]  "}
+                        Button{"[ Cancel ]"}
+                            .style(Style{}.with_fg(color::Black).with_bg(color::Green).with_bold())
+                            .focused_style(Style{}.with_fg(color::BrightWhite).with_bg(color::BrightGreen).with_bold())
+                            .shadow(Style{}.with_bg(color::rgb(0,0,0)))
                             .click([&]{ app.close_modal(quit_modal_id); })
-                            .focused_style(Style{}.with_fg(color::Green).with_bold())
                             .tab_index(1),
-                    }.size(fixed(1))
+                    }.size(fixed(4))
                 }
             )
             .build_modal();

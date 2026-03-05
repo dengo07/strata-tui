@@ -65,7 +65,7 @@ int main() {
         Label{"Hello, Strata!"}.size(fixed(1)),
         Button{"Quit"}
             .click([&]{ app.quit(); })
-            .size(fixed(3)),
+            .size(fixed(4)),   // fixed(4) → rounded bordered style (body_h=3 unfocused)
     });
 
     app.run();
@@ -187,6 +187,7 @@ Label{"text"}
 Button{"Click me"}
     .style(Style{}.with_fg(color::BrightCyan))
     .focused_style(Style{}.with_fg(color::Black).with_bg(color::BrightCyan).with_bold())
+    .shadow(Style{}.with_bg(color::Black))   // optional: explicit shadow color
     .click([&]{ /* callback */ })
     .tab_index(0)
     .size(fill(1))
@@ -609,17 +610,25 @@ Imperative: `label->set_text("…")`, `label->set_style(…)`, `label->set_wrap(
 
 ### `Button`
 
-Focusable. Renders as `[ Label ]`. Space or Enter fires `on_click`.
+Focusable. Rendering adapts to available space:
+
+| Size (unfocused) | Appearance |
+|---|---|
+| `fixed(4)` or taller, width ≥ 4 | Rounded border (`╭─╮ │ ╰─╯`) with label inside, `▀` half-block shadow row |
+| `fixed(3)` or shorter | Solid filled block with centered label, `▀` shadow row (if height ≥ 2) |
+
+When focused, the shadow row is suppressed and the threshold shifts: `fixed(3)` is enough for the bordered style.
 
 ```cpp
 Button{"OK"}
     .style(Style{}.with_fg(color::BrightGreen))
     .focused_style(Style{}.with_fg(color::Black).with_bg(color::BrightGreen).with_bold())
+    .shadow(Style{}.with_bg(color::Black))   // optional; auto-derived if omitted
     .click([&]{ /* ... */ })
-    .size(fill(1))
+    .size(fixed(4))
 ```
 
-Imperative: `btn->set_label("…")`, `btn->set_style(…)`, `btn->set_focused_style(…)`, `btn->on_click = [&]{};`.
+Imperative: `btn->set_label("…")`, `btn->set_style(…)`, `btn->set_focused_style(…)`, `btn->set_shadow_style(…)`, `btn->on_click = [&]{};`.
 
 ---
 

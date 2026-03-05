@@ -10,6 +10,8 @@ class Button : public Widget {
     std::string label_;
     Style style_;
     Style focused_style_;
+    Style shadow_style_;
+    bool  has_shadow_style_ = false;
 
 public:
     std::function<void()> on_click;
@@ -19,6 +21,7 @@ public:
     Button& set_label(std::string label);
     Button& set_style(Style style);
     Button& set_focused_style(Style style);
+    Button& set_shadow_style(Style style);
 
     const std::string& label() const { return label_; }
 

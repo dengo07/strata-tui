@@ -606,12 +606,25 @@ Label("text")
 Button("label")
     .style(Style)
     .focused_style(Style)
+    .shadow(Style)                       // explicit shadow style (optional)
     .size(Constraint)
     .click(std::function<void()>)
     .tab_index(int)
     .group(std::string)
     .bind(strata::Button*& ref)
 ```
+
+**Rendering tiers** (chosen automatically based on available space):
+
+| Condition | Style |
+|---|---|
+| `body_h ≥ 3` and `width ≥ 4` | Rounded border (`╭─╮ │ ╰─╯`) with label centered inside |
+| Otherwise | Solid filled rectangle with label centered |
+
+`body_h` is `height − 1` when unfocused (shadow row reserved) and `height` when focused.
+Use `fixed(4)` or taller for the bordered style when unfocused; `fixed(3)` is sufficient when focused (no shadow row).
+
+The shadow row uses `▀` (half-block) characters — top half painted in the button's background color, bottom half in the shadow color — giving a seamless "raised button" effect. The shadow row disappears while the button has focus.
 
 ### `Checkbox` — Toggle checkbox
 
@@ -768,7 +781,7 @@ Block()
 
 ### Button
 
-Clickable, focusable widget.
+Clickable, focusable widget. Automatically selects a rendering tier based on available height and width (see [Button DSL](#button--clickable-button) for the tier thresholds).
 
 ```cpp
 Button(std::string label = "Button")
@@ -783,6 +796,7 @@ Button(std::string label = "Button")
 | `set_label(string)` | Update button text |
 | `set_style(Style)` | Unfocused style |
 | `set_focused_style(Style)` | Style when focused |
+| `set_shadow_style(Style)` | Override the auto-derived shadow color; sets the `bg` of the `▀` shadow row |
 
 | Key | Action |
 |---|---|
@@ -1254,7 +1268,7 @@ auto open_confirm = [&]{
                             }),
                         Button("No")
                             .click([&]{ app.close_modal(confirm_id); }),
-                    }).size(fixed(1))
+                    }).size(fixed(4))   // fixed(4) → bordered style (body_h=3 unfocused)
                 })
             )
             .build_modal()

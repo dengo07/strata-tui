@@ -14,12 +14,13 @@ This document explains how the framework operates under the hood: the main loop,
 6. [Double-Buffering](#6-double-buffering)
 7. [Canvas & Coordinate Systems](#7-canvas--coordinate-systems)
 8. [The Layout Algorithm](#8-the-layout-algorithm)
-9. [Widget Lifecycle](#9-widget-lifecycle)
-10. [Event Routing](#10-event-routing)
-11. [FocusManager](#11-focusmanager)
-12. [Unicode & Wide-Character Handling](#12-unicode--wide-character-handling)
-13. [The DSL Layer — `ui.hpp`](#13-the-dsl-layer--uihpp)
-14. [Color & Attribute Mapping](#14-color--attribute-mapping)
+9. [Button Rendering](#9-button-rendering)
+10. [Widget Lifecycle](#10-widget-lifecycle-was-9)
+11. [Event Routing](#11-event-routing)
+12. [FocusManager](#12-focusmanager)
+13. [Unicode & Wide-Character Handling](#13-unicode--wide-character-handling)
+14. [The DSL Layer — `ui.hpp`](#14-the-dsl-layer--uihpp)
+15. [Color & Attribute Mapping](#15-color--attribute-mapping)
 
 ---
 
@@ -364,7 +365,50 @@ When `cross` is `fill()` (the default), `child_cross == full_cross` and the offs
 
 ---
 
-## 9. Widget Lifecycle
+## 9. Button Rendering
+
+**Source:** `src/widgets/button.cpp`
+
+`Button::render()` selects a visual tier based on available space, then optionally draws a half-block shadow row below the body.
+
+### Shadow row reservation
+
+When unfocused and `height ≥ 2`, the bottom row is reserved for the shadow: `body_h = height − 1`. When focused, `body_h = height` (no shadow, full height for the button body).
+
+### Tier selection
+
+```
+if body_h >= 3 and width >= 4:
+    Tier 1 — Rounded bordered box
+else:
+    Tier 2 — Solid filled block
+```
+
+**Tier 1 — Rounded border:**
+```
+╭─────────╮
+│  Label  │
+╰─────────╯
+```
+Corner and edge characters are drawn with `draw_cell(x, y, Cell{codepoint, style})`. The label is centered in the interior rows (rows 1 through `body_h − 2`). Both unfocused and focused styles use the same border characters; color comes from `style_` or `focused_style_`.
+
+**Tier 2 — Filled block:**
+All `body_h` rows filled with spaces using the button's background color; label centered.
+
+### Half-block shadow (`▀` U+2580)
+
+```cpp
+Style half_s = Style{}.with_fg(button_bg).with_bg(shadow_bg);
+draw_cell(x, h-1, Cell{U'\u2580', half_s});
+```
+
+The `▀` character's **top half** displays as `fg` (= button background color) and its **bottom half** as `bg` (= shadow color). This creates a seamless one-row "raised" transition instead of a hard full-row dark block.
+
+`shadow_bg` is either explicitly set via `set_shadow_style()` or auto-derived from the button background: `BrightX → X`, dark colors → `BrightBlack`.
+
+---
+
+## 10. Widget Lifecycle
 
 **Source:** `src/core/app.cpp`, `include/Strata/core/widget.hpp`
 
@@ -384,6 +428,19 @@ App::run()
 **`on_unmount()`** — called once when the app exits. Default implementation is empty.
 
 **`on_focus()` / `on_blur()`** — called by `FocusManager` when a widget gains or loses keyboard focus. Default implementation calls `mark_dirty()` to trigger a visual update (e.g., to draw focus highlight). Override to perform additional actions.
+
+### Modal Lifecycle Ordering
+
+`App::close_modal(id)` must call `focus_->pop_scope()` **before** erasing the modal from `modals_`. `pop_scope()` blurs the currently focused widget by writing to its `focused_` field — if the modal's widgets have already been destroyed by `modals_.erase()`, that write is a use-after-free.
+
+**Correct order:**
+```cpp
+focus_->pop_scope();           // 1. blur focused widget while it is still alive
+unmount_all(modals_[i]->inner()); // 2. call on_unmount() on modal widgets
+modals_.erase(...);            // 3. destroy modal + all its widgets
+```
+
+Any future modal implementation must maintain this invariant.
 
 ### `for_each_child(visitor)`
 
@@ -425,7 +482,7 @@ User-defined widgets inherit from `Widget` but cannot access `parent_`, `dirty_`
 
 ---
 
-## 10. Event Routing
+## 11. Event Routing
 
 **Source:** `src/core/app.cpp` — `App::route_event()`
 
@@ -480,7 +537,7 @@ Widget* App::find_focusable_at(Widget* w, int x, int y) {
 
 ---
 
-## 11. FocusManager
+## 12. FocusManager
 
 **Source:** `src/core/focus_manager.hpp/cpp`
 
@@ -521,7 +578,7 @@ Stable sort preserves DFS order among widgets with the same `tab_index`. This me
 
 ---
 
-## 12. Unicode & Wide-Character Handling
+## 13. Unicode & Wide-Character Handling
 
 **Source:** `src/render/canvas.cpp`
 
@@ -560,7 +617,7 @@ The canvas code:
 
 ---
 
-## 13. The DSL Layer — `ui.hpp`
+## 14. The DSL Layer — `ui.hpp`
 
 **Source:** `include/Strata/ui.hpp`
 
@@ -666,7 +723,7 @@ This preserves the opt-in semantics: blocks without an explicit `.focused_border
 
 ---
 
-## 14. Color & Attribute Mapping
+## 15. Color & Attribute Mapping
 
 **Source:** `src/render/ncurses_backend.cpp`
 
