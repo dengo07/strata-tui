@@ -109,7 +109,7 @@ using namespace strata::ui;
 
 ### 2a. Hello World
 
-The minimal Strata application: create an `App`, populate it with a `Label`, and call `run()`.
+A centered greeting box — showcases `Block`, nested `Col`, and justify/cross-axis centering in one small example.
 
 ```cpp
 #include <Strata/ui.hpp>
@@ -119,7 +119,25 @@ int main() {
     App app;
 
     populate(app, {
-        Label("Hello, Strata!").size(fixed(1))
+        Col({
+            Block(" Hello World ")
+                .border(Style{}.with_fg(color::Cyan).with_bold())
+                .inner(
+                    Col({
+                        Label("Hello, Strata!")
+                            .style(Style{}.with_fg(color::BrightWhite).with_bold())
+                            .size(fixed(1)),
+                        Label("").size(fixed(1)),
+                        Label("press  q  to quit")
+                            .style(Style{}.with_fg(color::BrightBlack))
+                            .size(fixed(1)),
+                    }).justify(Layout::Justify::Center)
+                      .cross_align(Layout::Align::Center)
+                )
+                .size(fixed(7))
+                .cross(fixed(36)),
+        }).justify(Layout::Justify::Center)
+          .cross_align(Layout::Align::Center)
     });
 
     app.on_event = [&](const Event& e) {
@@ -134,11 +152,13 @@ int main() {
 - `App` initialises the ncurses backend and creates a root `Container`.
 - `populate()` adds each top-level `Node` to that root container.
 - `app.run()` blocks in an event loop until `app.quit()` is called.
+- The outer `Col` with `justify(Center)` + `cross_align(Center)` centers the box vertically and horizontally on screen.
+- `Block.size(fixed(7)).cross(fixed(36))` pins the box to 7 rows × 36 columns regardless of terminal size.
 - `on_event` is called for every event not consumed by a focused widget — use it for global hotkeys.
 
 ### 2b. Counter
 
-Two buttons that increment/decrement an integer, displayed in a label.
+Two bordered buttons that increment/decrement an integer, displayed in a styled panel — centered on screen.
 
 ```cpp
 #include <Strata/ui.hpp>
@@ -150,20 +170,43 @@ int main() {
     strata::Label* lbl = nullptr;
 
     populate(app, {
-        Col({
-            Label("Counter Demo").size(fixed(1)),
-            Label("0")
-                .size(fixed(1))
-                .bind(lbl),
-            Row({
-                Button("-")
-                    .size(fixed(6))
-                    .click([&]{ lbl->set_text(std::to_string(--count)); }),
-                Button("+")
-                    .size(fixed(6))
-                    .click([&]{ lbl->set_text(std::to_string(++count)); }),
-            }).size(fixed(1))
-        })
+        Block("Counter App")
+            .border(Style{}.with_bg(color::Black))
+            .inner(
+                Col({
+                    Block()
+                        .border(Style{}.with_fg(color::Red).with_bg(color::Black))
+                        .inner(
+                            Col({
+                                Label("0")
+                                    .style(Style{}.with_fg(color::White).with_bold())
+                                    .size(fixed(1))
+                                    .cross(fixed(4))
+                                    .bind(lbl)
+                            }).justify(Layout::Justify::Center)
+                              .cross_align(Layout::Align::Center)
+                        )
+                        .size(fixed(10))
+                        .cross(fixed(50)),
+                    Row({
+                        Button("-")
+                            .style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
+                            .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::rgb(0,0,0)).with_bold())
+                            .click([&]{ lbl->set_text(std::to_string(--count)); })
+                            .size(fixed(10))
+                            .cross(fixed(4)),
+                        Button("+")
+                            .style(Style{}.with_bg(color::BrightGreen).with_fg(color::Black).with_bold())
+                            .focused_style(Style{}.with_bg(color::BrightGreen).with_fg(color::rgb(0,0,0)).with_bold())
+                            .click([&]{ lbl->set_text(std::to_string(++count)); })
+                            .size(fixed(10))
+                            .cross(fixed(4)),
+                    }).justify(Layout::Justify::Center)
+                      .gap(1)
+                      .size(fixed(4)),
+                }).justify(Layout::Justify::Center)
+                  .cross_align(Layout::Align::Center)
+            )
     });
 
     app.on_event = [&](const Event& e) {
@@ -178,11 +221,13 @@ int main() {
 - `.bind(lbl)` stores the raw pointer to the created widget so you can call setters later.
 - `.click(fn)` sets the `on_click` callback on the `Button`.
 - `set_text()` calls `mark_dirty()` internally, scheduling a redraw.
-- `fixed(6)` / `fill()` are constraint helpers — see [Layout System](#3c-layout-system).
+- `Row.size(fixed(4))` fixes the button row height so `justify(Center)` on the outer `Col` has no fill child and can distribute vertical space evenly.
+- Buttons use `size(fixed(10)).cross(fixed(4))` — width 10, height 4. At `body_h = 3` (unfocused) the bordered rendering tier activates automatically.
+- `cross_align(Center)` on the outer `Col` keeps the display block (50 wide) horizontally centered regardless of terminal width.
 
 ### 2c. To-Do List
 
-An `Input` for adding items, displayed in a scrollable list.
+An `Input` for adding items displayed in a scrollable list, wrapped in a styled panel.
 
 ```cpp
 #include <Strata/ui.hpp>
@@ -196,47 +241,53 @@ int main() {
     App app;
     std::vector<std::string> items;
 
-    // Pre-allocate label slots
     std::vector<strata::Label*> slots(MAX_ITEMS, nullptr);
     strata::Input* input_widget = nullptr;
 
-    // Build the pre-allocated slot list
     std::vector<Node> slot_nodes;
     slot_nodes.reserve(MAX_ITEMS);
-    for (int i = 0; i < MAX_ITEMS; ++i) {
+    for (int i = 0; i < MAX_ITEMS; ++i)
         slot_nodes.push_back(
-            Label("").size(fixed(1)).bind(slots[i])
+            Label("").size(fixed(1))
+                     .style(Style{}.with_fg(color::BrightWhite))
+                     .bind(slots[i])
         );
-    }
 
     auto refresh = [&]{
         for (int i = 0; i < MAX_ITEMS; ++i) {
-            if (slots[i]) {
-                slots[i]->set_text(i < (int)items.size() ? items[i] : "");
-            }
+            if (slots[i])
+                slots[i]->set_text(i < (int)items.size()
+                    ? "  • " + items[i]
+                    : "");
         }
     };
 
     populate(app, {
-        Col({
-            Label("To-Do List").size(fixed(1)),
-            Row({
-                Input()
-                    .placeholder("Add item…")
-                    .group("input")
-                    .size(fill())
-                    .bind(input_widget)
-                    .submit([&](const std::string& val){
-                        if (!val.empty() && (int)items.size() < MAX_ITEMS) {
-                            items.push_back(val);
-                            input_widget->set_value("");
-                            refresh();
-                        }
-                    }),
-            }).size(fixed(1)),
-            ScrollView(std::move(slot_nodes))
-                .group("list")
-        })
+        Block("To-Do List")
+            .border(Style{}.with_fg(color::Cyan).with_bold())
+            .focused_border(Style{}.with_fg(color::BrightCyan).with_bold())
+            .inner(
+                Col({
+                    Row({
+                        Label("  Add: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(7)),
+                        Input()
+                            .placeholder("type and press Enter…")
+                            .group("input")
+                            .size(fill())
+                            .bind(input_widget)
+                            .submit([&](const std::string& val){
+                                if (!val.empty() && (int)items.size() < MAX_ITEMS) {
+                                    items.push_back(val);
+                                    input_widget->set_value("");
+                                    refresh();
+                                }
+                            }),
+                    }).size(fixed(1)),
+                    Label("").size(fixed(1)),
+                    ScrollView(std::move(slot_nodes))
+                        .group("list")
+                })
+            )
     });
 
     refresh();
@@ -250,13 +301,14 @@ int main() {
 ```
 
 **Key ideas:**
-- **Pre-allocated slots**: instead of dynamically adding/removing widgets (not supported at runtime), allocate the maximum number of labels upfront and blank out unused ones.
-- **Focus groups**: `.group("input")` / `.group("list")` — Tab jumps between groups; arrow keys navigate within a group. See [Focus Groups](#3e-focus--focus-groups).
+- **Pre-allocated slots**: instead of dynamically adding/removing widgets (not supported at runtime), allocate the maximum number of labels upfront and blank out unused ones. The `refresh` lambda syncs them to the data model.
+- **Bullet prefix**: items are displayed as `  • text` — update just the label text in `refresh`, no widget reconstruction needed.
+- **Focus groups**: `.group("input")` / `.group("list")` — Tab jumps between the input field and the scroll list; arrow keys navigate within each group. See [Focus Groups](#3e-focus--focus-groups).
 - **`ScrollView`**: scrollable vertical container; j/k/↑↓ scroll by 1 line, PgDn/PgUp by a page.
 
 ### 2d. Dashboard with Async Updates
 
-Polling a value in the background and updating a progress bar on the main thread.
+Polling a value in the background and updating a progress bar on the main thread, inside a styled panel.
 
 ```cpp
 #include <Strata/ui.hpp>
@@ -267,29 +319,45 @@ using namespace strata::ui;
 
 int main() {
     App app;
-    strata::ProgressBar* pb = nullptr;
+    strata::ProgressBar* pb    = nullptr;
+    strata::Label*       lbl   = nullptr;
 
     populate(app, {
         Col({
-            Label("CPU usage").size(fixed(1)),
-            ProgressBar().size(fixed(1)).bind(pb),
-        })
+            Block("System Monitor")
+                .border(Style{}.with_fg(color::Blue).with_bold())
+                .inner(
+                    Col({
+                        Label("CPU Usage")
+                            .style(Style{}.with_fg(color::BrightWhite).with_bold())
+                            .size(fixed(1)),
+                        ProgressBar().size(fixed(1)).bind(pb),
+                        Label("").size(fixed(1)),
+                        Label("Waiting for first sample…")
+                            .style(Style{}.with_fg(color::BrightBlack))
+                            .size(fixed(1))
+                            .bind(lbl),
+                    })
+                )
+                .size(fixed(8))
+                .cross(fixed(48)),
+        }).justify(Layout::Justify::Center)
+          .cross_align(Layout::Align::Center)
     });
 
-    // Poll every second
     app.set_interval(1000, [&]{
-        // Shared result between bg and on_done
         auto result = std::make_shared<float>(0.0f);
         app.run_async(
             // Background thread — must NOT touch widgets
             [result]{
-                // Simulate a measurement
                 std::this_thread::sleep_for(std::chrono::milliseconds(200));
                 *result = 0.42f;  // replace with real measurement
             },
             // Main thread — safe to call widget setters
             [&, result]{
-                if (pb) pb->set_value(*result);
+                if (pb)  pb->set_value(*result);
+                if (lbl) lbl->set_text("Last reading: " +
+                    std::to_string((int)(*result * 100)) + "%");
             }
         );
     });
@@ -306,6 +374,7 @@ int main() {
 - `bg_fn` runs on a detached thread. Never touch any widget inside it.
 - `on_done` is queued and runs on the main thread ≤ 16 ms after `bg_fn` returns.
 - Pass data through a `shared_ptr<T>`: bg thread writes, on_done reads.
+- Bind two pointers (`pb`, `lbl`) to update both the bar and a status line from the same callback.
 
 ---
 
