@@ -338,18 +338,51 @@ The `NcursesBackend` is double-buffered: `draw_cell()` writes to a back buffer; 
 
 #### Constraint types
 
+Each child carries **two** independent constraints: **main-axis** (`.size()`) and **cross-axis** (`.cross()`).
+
+| | `Col` | `Row` |
+|---|---|---|
+| Main axis | height | width |
+| Cross axis | width | height |
+
 | Constructor | Meaning |
 |---|---|
-| `fixed(n)` | Exactly `n` cells in the layout direction |
-| `min(n)` | At least `n` cells; can grow |
+| `fixed(n)` | Exactly `n` cells |
+| `min(n)` | At least `n` cells; grows into remaining space |
 | `max(n)` | At most `n` cells; fills available space up to cap |
-| `percentage(p)` | `p`% of the parent's available space |
+| `percentage(p)` | `p`% of the available space |
 | `fill(w=1)` | Proportional fill; weight `w` divides remaining space |
 
-#### Two-pass algorithm
+#### Two-pass algorithm (main axis)
 
-1. **Pass 1**: resolve `Fixed`, `Percentage`, `Min`, `Max` constraints and sum the allocated space.
-2. **Pass 2**: distribute remaining space proportionally among `Fill` widgets by weight. The last `Fill` absorbs integer rounding remainder.
+1. **Pass 1**: resolve `Fixed`, `Percentage`, `Min` constraints and sum the allocated space. `Min` widgets also participate in fill distribution from their floor.
+2. **Pass 2**: distribute remaining space proportionally among `Fill`, `Max`, and `Min` widgets by weight.
+
+#### Cross-axis sizing and alignment
+
+By default every child stretches to fill the full cross-axis slot (`fill()`). Set `.cross(constraint)` to limit it:
+
+```cpp
+// Row: a column that is exactly 5 rows tall, centered vertically
+Row{
+    Col{ ... }.size(fill()).cross(fixed(5)),
+}.cross_align(Layout::Align::Center)
+```
+
+| `.cross(constraint)` | Cross-axis behavior |
+|---|---|
+| `fill()` (default) | Stretch to fill the full slot |
+| `fixed(n)` | Exactly `n` cells in the cross direction |
+| `max(n)` | At most `n` cells |
+| `percentage(p)` | `p`% of the cross-axis slot |
+
+When a child's cross size is less than the full slot, position it with `cross_align` on the container:
+
+| `cross_align(value)` | Position |
+|---|---|
+| `Align::Start` (default) | Top / left |
+| `Align::Center` | Centered |
+| `Align::End` | Bottom / right |
 
 #### Layout direction
 
@@ -360,9 +393,9 @@ Layout(Layout::Direction::Horizontal)  // children placed left-to-right
 
 `Col{...}` in the DSL is Vertical; `Row{...}` is Horizontal.
 
-#### Justify (alignment)
+#### Justify (main-axis alignment)
 
-When **no** `fill` constraints are present, the leftover space is distributed according to `Justify`:
+When **no** `fill` constraints are present, the leftover main-axis space is distributed according to `Justify`:
 
 | Value | Effect |
 |---|---|
@@ -521,8 +554,10 @@ percentage(int p)    // Constraint::percentage(p)
 
 ```cpp
 Col({ child, child, ... })
-    .size(Constraint)                    // default: fill()
-    .justify(Layout::Justify::Start)     // alignment when no fill children
+    .size(Constraint)                    // main-axis (height); default: fill()
+    .cross(Constraint)                   // cross-axis (width); default: fill() = stretch
+    .justify(Layout::Justify::Start)     // main-axis child alignment when no fill
+    .cross_align(Layout::Align::Start)   // cross-axis child alignment when child < full
     .gap(int)                            // gap between children
 ```
 
@@ -530,10 +565,14 @@ Col({ child, child, ... })
 
 ```cpp
 Row({ child, child, ... })
-    .size(Constraint)
+    .size(Constraint)                    // main-axis (width); default: fill()
+    .cross(Constraint)                   // cross-axis (height); default: fill() = stretch
     .justify(Layout::Justify::Start)
+    .cross_align(Layout::Align::Start)   // Start | Center | End
     .gap(int)
 ```
+
+Every leaf descriptor (`Label`, `Button`, `Input`, etc.) also accepts `.cross(Constraint)` to override its cross-axis size when placed inside a container.
 
 ### `Block` — Bordered box
 

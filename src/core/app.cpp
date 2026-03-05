@@ -27,8 +27,8 @@ App::~App() = default;
 // Public interface
 // ---------------------------------------------------------------------------
 
-Widget* App::add(std::unique_ptr<Widget> w, Constraint c) {
-    return root_->add(std::move(w), c);
+Widget* App::add(std::unique_ptr<Widget> w, Constraint main, Constraint cross) {
+    return root_->add(std::move(w), main, cross);
 }
 
 void App::quit() {

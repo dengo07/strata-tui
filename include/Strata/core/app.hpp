@@ -78,7 +78,9 @@ public:
         return root_->add<W>(c, std::forward<Args>(args)...);
     }
 
-    Widget* add(std::unique_ptr<Widget> w, Constraint c = Constraint::fill());
+    Widget* add(std::unique_ptr<Widget> w,
+                Constraint main  = Constraint::fill(),
+                Constraint cross = Constraint::fill());
 
     // Blocks until quit() is called
     void run();

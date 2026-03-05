@@ -22,7 +22,7 @@ std::vector<Rect> Layout::split(Rect area, const std::vector<Constraint>& constr
     int allocated = 0;
     int fill_weight_total = 0;
 
-    // Pass 1: resolve Fixed, Percentage, Min
+    // Pass 1: resolve Fixed, Percentage; set floor for Min; tag Fill/Max/Min for pass 2
     for (int i = 0; i < n; ++i) {
         const auto& c = constraints[i];
         switch (c.type) {
@@ -35,8 +35,9 @@ std::vector<Rect> Layout::split(Rect area, const std::vector<Constraint>& constr
                 allocated += sizes[i];
                 break;
             case Constraint::Type::Min:
-                sizes[i] = c.value; // tentative minimum
+                sizes[i] = c.value; // guaranteed floor; may grow in pass 2
                 allocated += sizes[i];
+                fill_weight_total += 1;  // participates in fill distribution with weight 1
                 break;
             case Constraint::Type::Max:
                 // Treat as fill with a cap; resolved in pass 2
@@ -48,7 +49,7 @@ std::vector<Rect> Layout::split(Rect area, const std::vector<Constraint>& constr
         }
     }
 
-    // Pass 2: distribute remaining space among Fill / Max widgets
+    // Pass 2: distribute remaining space among Fill / Max / Min widgets
     int remaining = std::max(0, available - allocated);
 
     if (fill_weight_total > 0 && remaining > 0) {
@@ -66,15 +67,32 @@ std::vector<Rect> Layout::split(Rect area, const std::vector<Constraint>& constr
                 sizes[i] = std::min(sizes[i], c.value); // apply cap
                 distributed += sizes[i];
                 last_fill_idx = i;
+            } else if (c.type == Constraint::Type::Min) {
+                // Grow beyond the floor allocated in pass 1
+                int growth = remaining / fill_weight_total;
+                sizes[i] += growth;
+                distributed += growth;
+                last_fill_idx = i;
             }
         }
 
-        // Give integer rounding remainder to the last Fill widget
+        // Give integer rounding remainder to the last fill-capable widget.
+        // If it's a Max that hits its cap, walk backward to find a non-Max widget.
         if (last_fill_idx >= 0) {
-            sizes[last_fill_idx] += (remaining - distributed);
-            // Re-apply Max cap after adjustment
-            if (constraints[last_fill_idx].type == Constraint::Type::Max) {
-                sizes[last_fill_idx] = std::min(sizes[last_fill_idx], constraints[last_fill_idx].value);
+            int leftover = remaining - distributed;
+            int idx = last_fill_idx;
+            while (leftover > 0 && idx >= 0) {
+                if (constraints[idx].type == Constraint::Type::Max) {
+                    int headroom = constraints[idx].value - sizes[idx];
+                    int add = std::min(leftover, headroom);
+                    sizes[idx] += add;
+                    leftover   -= add;
+                    --idx;
+                } else {
+                    // Fill or Min — absorb all remaining
+                    sizes[idx] += leftover;
+                    leftover = 0;
+                }
             }
         }
     }

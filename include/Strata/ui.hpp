@@ -50,6 +50,7 @@ class Node {
     struct Concept {
         virtual std::unique_ptr<strata::Widget> build() const = 0;
         virtual strata::Constraint constraint() const = 0;
+        virtual strata::Constraint cross_constraint() const = 0;
         virtual ~Concept() = default;
     };
     template<typename T>
@@ -58,6 +59,7 @@ class Node {
         explicit Model(T v) : val(std::move(v)) {}
         std::unique_ptr<strata::Widget> build() const override { return val.build(); }
         strata::Constraint constraint() const override { return val.constraint(); }
+        strata::Constraint cross_constraint() const override { return val.cross_constraint(); }
     };
     std::shared_ptr<Concept> impl_;
 public:
@@ -67,65 +69,78 @@ public:
 
     std::unique_ptr<strata::Widget> build() const { return impl_->build(); }
     strata::Constraint constraint() const { return impl_->constraint(); }
+    strata::Constraint cross_constraint() const { return impl_->cross_constraint(); }
 };
 
 // ── populate ──────────────────────────────────────────────────────────────────
 // Add all top-level nodes to the App's root container.
 inline void populate(strata::App& app, std::initializer_list<Node> nodes) {
     for (const Node& n : nodes)
-        app.add(n.build(), n.constraint());
+        app.add(n.build(), n.constraint(), n.cross_constraint());
 }
 
 // ── Col ───────────────────────────────────────────────────────────────────────
 // Vertical Container descriptor.
 class Col {
     std::vector<Node>       children_;
-    strata::Constraint      size_    = strata::Constraint::fill();
-    strata::Layout::Justify justify_ = strata::Layout::Justify::Start;
-    int                     gap_     = 0;
+    strata::Constraint      size_        = strata::Constraint::fill();
+    strata::Constraint      cross_       = strata::Constraint::fill();
+    strata::Layout::Justify justify_     = strata::Layout::Justify::Start;
+    strata::Layout::Align   cross_align_ = strata::Layout::Align::Start;
+    int                     gap_         = 0;
 public:
     explicit Col(std::initializer_list<Node> children) : children_(children) {}
 
-    Col& size(strata::Constraint c)         { size_    = c; return *this; }
-    Col& justify(strata::Layout::Justify j) { justify_ = j; return *this; }
-    Col& gap(int g)                         { gap_     = g; return *this; }
+    Col& size(strata::Constraint c)              { size_        = c; return *this; }
+    Col& cross(strata::Constraint c)             { cross_       = c; return *this; }
+    Col& justify(strata::Layout::Justify j)      { justify_     = j; return *this; }
+    Col& cross_align(strata::Layout::Align a)    { cross_align_ = a; return *this; }
+    Col& gap(int g)                              { gap_         = g; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto c = std::make_unique<strata::Container>(
             strata::Layout(strata::Layout::Direction::Vertical)
                 .set_justify(justify_)
                 .set_gap(gap_));
+        c->set_cross_align(cross_align_);
         for (const Node& n : children_)
-            c->add(n.build(), n.constraint());
+            c->add(n.build(), n.constraint(), n.cross_constraint());
         return c;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Row ───────────────────────────────────────────────────────────────────────
 // Horizontal Container descriptor.
 class Row {
     std::vector<Node>       children_;
-    strata::Constraint      size_    = strata::Constraint::fill();
-    strata::Layout::Justify justify_ = strata::Layout::Justify::Start;
-    int                     gap_     = 0;
+    strata::Constraint      size_        = strata::Constraint::fill();
+    strata::Constraint      cross_       = strata::Constraint::fill();
+    strata::Layout::Justify justify_     = strata::Layout::Justify::Start;
+    strata::Layout::Align   cross_align_ = strata::Layout::Align::Start;
+    int                     gap_         = 0;
 public:
     explicit Row(std::initializer_list<Node> children) : children_(children) {}
 
-    Row& size(strata::Constraint c)         { size_    = c; return *this; }
-    Row& justify(strata::Layout::Justify j) { justify_ = j; return *this; }
-    Row& gap(int g)                         { gap_     = g; return *this; }
+    Row& size(strata::Constraint c)              { size_        = c; return *this; }
+    Row& cross(strata::Constraint c)             { cross_       = c; return *this; }
+    Row& justify(strata::Layout::Justify j)      { justify_     = j; return *this; }
+    Row& cross_align(strata::Layout::Align a)    { cross_align_ = a; return *this; }
+    Row& gap(int g)                              { gap_         = g; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto c = std::make_unique<strata::Container>(
             strata::Layout(strata::Layout::Direction::Horizontal)
                 .set_justify(justify_)
                 .set_gap(gap_));
+        c->set_cross_align(cross_align_);
         for (const Node& n : children_)
-            c->add(n.build(), n.constraint());
+            c->add(n.build(), n.constraint(), n.cross_constraint());
         return c;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Block ─────────────────────────────────────────────────────────────────────
@@ -137,13 +152,15 @@ class Block {
     strata::Style           title_style_;
     strata::Style           focused_border_style_;
     strata::Style           focused_title_style_;
-    strata::Constraint      size_ = strata::Constraint::fill();
-    mutable strata::Block** ref_  = nullptr;
+    strata::Constraint      size_  = strata::Constraint::fill();
+    strata::Constraint      cross_ = strata::Constraint::fill();
+    mutable strata::Block** ref_   = nullptr;
 public:
     explicit Block(std::string title = "", std::optional<Node> inner = std::nullopt)
         : title_(std::move(title)), inner_(std::move(inner)) {}
 
     Block& size(strata::Constraint c)       { size_                 = c; return *this; }
+    Block& cross(strata::Constraint c)      { cross_                = c; return *this; }
     Block& border(strata::Style s)          { border_style_         = s; return *this; }
     Block& title_style(strata::Style s)     { title_style_          = s; return *this; }
     Block& focused_border(strata::Style s)  { focused_border_style_ = s; return *this; }
@@ -174,15 +191,17 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Label ─────────────────────────────────────────────────────────────────────
 class Label {
     std::string        text_;
     strata::Style      style_;
-    bool               wrap_ = false;
-    strata::Constraint size_ = strata::Constraint::fill();
+    bool               wrap_  = false;
+    strata::Constraint size_  = strata::Constraint::fill();
+    strata::Constraint cross_ = strata::Constraint::fill();
     mutable strata::Label** ref_ = nullptr;
 public:
     explicit Label(std::string text = "") : text_(std::move(text)) {}
@@ -190,6 +209,7 @@ public:
     Label& style(strata::Style s)      { style_ = s;    return *this; }
     Label& wrap(bool w)                { wrap_  = w;    return *this; }
     Label& size(strata::Constraint c)  { size_  = c;    return *this; }
+    Label& cross(strata::Constraint c) { cross_ = c;    return *this; }
     Label& bind(strata::Label*& ref)   { ref_   = &ref; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
@@ -198,7 +218,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Button ────────────────────────────────────────────────────────────────────
@@ -207,6 +228,7 @@ class Button {
     strata::Style            style_;
     strata::Style            focused_style_;
     strata::Constraint       size_      = strata::Constraint::fill();
+    strata::Constraint       cross_     = strata::Constraint::fill();
     std::function<void()>    on_click_;
     int                      tab_index_ = 0;
     std::string              focus_group_;
@@ -217,6 +239,7 @@ public:
     Button& style(strata::Style s)          { style_         = s;            return *this; }
     Button& focused_style(strata::Style s)  { focused_style_ = s;            return *this; }
     Button& size(strata::Constraint c)      { size_          = c;            return *this; }
+    Button& cross(strata::Constraint c)     { cross_         = c;            return *this; }
     Button& click(std::function<void()> f)  { on_click_      = std::move(f); return *this; }
     Button& tab_index(int i)                { tab_index_     = i;            return *this; }
     Button& group(std::string g)            { focus_group_   = std::move(g); return *this; }
@@ -233,7 +256,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Checkbox ──────────────────────────────────────────────────────────────────
@@ -241,15 +265,17 @@ class Checkbox {
     std::string                  label_;
     bool                         checked_   = false;
     strata::Constraint           size_      = strata::Constraint::fill();
+    strata::Constraint           cross_     = strata::Constraint::fill();
     std::function<void(bool)>    on_change_;
     int                          tab_index_ = 0;
     std::string                  focus_group_;
-    mutable strata::Checkbox** ref_       = nullptr;
+    mutable strata::Checkbox**   ref_       = nullptr;
 public:
     explicit Checkbox(std::string label) : label_(std::move(label)) {}
 
     Checkbox& checked(bool c)                      { checked_   = c;            return *this; }
     Checkbox& size(strata::Constraint c)           { size_      = c;            return *this; }
+    Checkbox& cross(strata::Constraint c)          { cross_     = c;            return *this; }
     Checkbox& change(std::function<void(bool)> f)  { on_change_ = std::move(f); return *this; }
     Checkbox& tab_index(int i)                     { tab_index_ = i;            return *this; }
     Checkbox& group(std::string g)                 { focus_group_ = std::move(g); return *this; }
@@ -263,7 +289,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Switch ────────────────────────────────────────────────────────────────────
@@ -271,15 +298,17 @@ class Switch {
     std::string                  label_;
     bool                         on_        = false;
     strata::Constraint           size_      = strata::Constraint::fill();
+    strata::Constraint           cross_     = strata::Constraint::fill();
     std::function<void(bool)>    on_change_;
     int                          tab_index_ = 0;
     std::string                  focus_group_;
-    mutable strata::Switch** ref_       = nullptr;
+    mutable strata::Switch**     ref_       = nullptr;
 public:
     explicit Switch(std::string label) : label_(std::move(label)) {}
 
     Switch& on(bool v)                             { on_        = v;            return *this; }
     Switch& size(strata::Constraint c)             { size_      = c;            return *this; }
+    Switch& cross(strata::Constraint c)            { cross_     = c;            return *this; }
     Switch& change(std::function<void(bool)> f)    { on_change_ = std::move(f); return *this; }
     Switch& tab_index(int i)                       { tab_index_ = i;            return *this; }
     Switch& group(std::string g)                   { focus_group_ = std::move(g); return *this; }
@@ -293,7 +322,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Input ─────────────────────────────────────────────────────────────────────
@@ -301,17 +331,19 @@ class Input {
     std::string                              placeholder_;
     std::string                              value_;
     strata::Constraint                       size_      = strata::Constraint::fill();
+    strata::Constraint                       cross_     = strata::Constraint::fill();
     std::function<void(const std::string&)>  on_submit_;
     std::function<void(const std::string&)>  on_change_;
     int                                      tab_index_ = 0;
     std::string                              focus_group_;
-    mutable strata::Input** ref_       = nullptr;
+    mutable strata::Input**                  ref_       = nullptr;
 public:
     Input() = default;
 
     Input& placeholder(std::string s)                         { placeholder_ = std::move(s); return *this; }
     Input& value(std::string s)                               { value_       = std::move(s); return *this; }
     Input& size(strata::Constraint c)                         { size_        = c;            return *this; }
+    Input& cross(strata::Constraint c)                        { cross_       = c;            return *this; }
     Input& submit(std::function<void(const std::string&)> f)  { on_submit_   = std::move(f); return *this; }
     Input& change(std::function<void(const std::string&)> f)  { on_change_   = std::move(f); return *this; }
     Input& tab_index(int i)                                   { tab_index_   = i;            return *this; }
@@ -329,7 +361,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Select ────────────────────────────────────────────────────────────────────
@@ -337,16 +370,18 @@ class Select {
     std::vector<std::string>                     items_;
     int                                          selected_  = 0;
     strata::Constraint                           size_      = strata::Constraint::fill();
+    strata::Constraint                           cross_     = strata::Constraint::fill();
     std::function<void(int, const std::string&)> on_change_;
     int                                          tab_index_ = 0;
     std::string                                  focus_group_;
-    mutable strata::Select** ref_       = nullptr;
+    mutable strata::Select**                     ref_       = nullptr;
 public:
     Select() = default;
 
     Select& items(std::vector<std::string> v)                       { items_     = std::move(v); return *this; }
     Select& selected(int i)                                         { selected_  = i;            return *this; }
     Select& size(strata::Constraint c)                              { size_      = c;            return *this; }
+    Select& cross(strata::Constraint c)                             { cross_     = c;            return *this; }
     Select& change(std::function<void(int, const std::string&)> f)  { on_change_ = std::move(f); return *this; }
     Select& tab_index(int i)                                        { tab_index_ = i;            return *this; }
     Select& group(std::string g)                                    { focus_group_ = std::move(g); return *this; }
@@ -361,7 +396,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── RadioGroup ────────────────────────────────────────────────────────────────
@@ -369,16 +405,18 @@ class RadioGroup {
     std::vector<std::string>                     items_;
     int                                          selected_  = 0;
     strata::Constraint                           size_      = strata::Constraint::fill();
+    strata::Constraint                           cross_     = strata::Constraint::fill();
     std::function<void(int, const std::string&)> on_change_;
     int                                          tab_index_ = 0;
     std::string                                  focus_group_;
-    mutable strata::RadioGroup** ref_       = nullptr;
+    mutable strata::RadioGroup**                 ref_       = nullptr;
 public:
     RadioGroup() = default;
 
     RadioGroup& items(std::vector<std::string> v)                       { items_     = std::move(v); return *this; }
     RadioGroup& selected(int i)                                         { selected_  = i;            return *this; }
     RadioGroup& size(strata::Constraint c)                              { size_      = c;            return *this; }
+    RadioGroup& cross(strata::Constraint c)                             { cross_     = c;            return *this; }
     RadioGroup& change(std::function<void(int, const std::string&)> f)  { on_change_ = std::move(f); return *this; }
     RadioGroup& tab_index(int i)                                        { tab_index_ = i;            return *this; }
     RadioGroup& group(std::string g)                                    { focus_group_ = std::move(g); return *this; }
@@ -393,7 +431,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── ProgressBar ───────────────────────────────────────────────────────────────
@@ -401,14 +440,16 @@ class ProgressBar {
     float                          value_        = 0.0f;
     bool                           show_percent_ = true;
     strata::Constraint             size_         = strata::Constraint::fill();
-    mutable strata::ProgressBar** ref_          = nullptr;
+    strata::Constraint             cross_        = strata::Constraint::fill();
+    mutable strata::ProgressBar**  ref_          = nullptr;
 public:
     ProgressBar() = default;
 
-    ProgressBar& value(float v)              { value_        = v;    return *this; }
-    ProgressBar& show_percent(bool s)        { show_percent_ = s;    return *this; }
-    ProgressBar& size(strata::Constraint c)  { size_         = c;    return *this; }
-    ProgressBar& bind(strata::ProgressBar*& ref) { ref_      = &ref; return *this; }
+    ProgressBar& value(float v)                  { value_        = v;    return *this; }
+    ProgressBar& show_percent(bool s)            { show_percent_ = s;    return *this; }
+    ProgressBar& size(strata::Constraint c)      { size_         = c;    return *this; }
+    ProgressBar& cross(strata::Constraint c)     { cross_        = c;    return *this; }
+    ProgressBar& bind(strata::ProgressBar*& ref) { ref_          = &ref; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto w = std::make_unique<strata::ProgressBar>();
@@ -416,7 +457,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── Spinner ───────────────────────────────────────────────────────────────────
@@ -425,7 +467,8 @@ class Spinner {
     bool                       auto_animate_  = false;
     int                        animate_every_ = 6;
     strata::Constraint         size_          = strata::Constraint::fill();
-    mutable strata::Spinner** ref_           = nullptr;
+    strata::Constraint         cross_         = strata::Constraint::fill();
+    mutable strata::Spinner**  ref_           = nullptr;
 public:
     explicit Spinner(std::string label = "") : label_(std::move(label)) {}
 
@@ -434,8 +477,9 @@ public:
         animate_every_ = every;
         return *this;
     }
-    Spinner& size(strata::Constraint c)   { size_ = c;    return *this; }
-    Spinner& bind(strata::Spinner*& ref)  { ref_  = &ref; return *this; }
+    Spinner& size(strata::Constraint c)   { size_  = c;    return *this; }
+    Spinner& cross(strata::Constraint c)  { cross_ = c;    return *this; }
+    Spinner& bind(strata::Spinner*& ref)  { ref_   = &ref; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto w = std::make_unique<strata::Spinner>(label_);
@@ -443,7 +487,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── ScrollView ────────────────────────────────────────────────────────────────
@@ -451,14 +496,16 @@ public:
 class ScrollView {
     std::vector<Node>              children_;
     strata::Constraint             size_      = strata::Constraint::fill();
+    strata::Constraint             cross_     = strata::Constraint::fill();
     int                            tab_index_ = 0;
     std::string                    focus_group_;
-    mutable strata::ScrollView** ref_       = nullptr;
+    mutable strata::ScrollView**   ref_       = nullptr;
 public:
     explicit ScrollView(std::initializer_list<Node> children) : children_(children) {}
     explicit ScrollView(std::vector<Node> children) : children_(std::move(children)) {}
 
     ScrollView& size(strata::Constraint c)     { size_      = c;            return *this; }
+    ScrollView& cross(strata::Constraint c)    { cross_     = c;            return *this; }
     ScrollView& tab_index(int i)               { tab_index_ = i;            return *this; }
     ScrollView& group(std::string g)           { focus_group_ = std::move(g); return *this; }
     ScrollView& bind(strata::ScrollView*& ref) { ref_       = &ref;         return *this; }
@@ -473,7 +520,8 @@ public:
         if (ref_) *ref_ = w.get();
         return w;
     }
-    strata::Constraint constraint() const { return size_; }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
 };
 
 // ── ModalDesc ─────────────────────────────────────────────────────────────────

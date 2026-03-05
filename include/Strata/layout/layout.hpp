@@ -9,8 +9,12 @@ class Layout {
 public:
     enum class Direction { Horizontal, Vertical };
     enum class Justify   { Start, Center, End, SpaceBetween, SpaceAround };
+    // Cross-axis alignment: where a child sits when its cross size < the full slot
+    enum class Align     { Start, Center, End };
 
     explicit Layout(Direction dir = Direction::Vertical);
+
+    Direction direction() const { return dir_; }
 
     Layout& set_gap(int gap);
     Layout& set_justify(Justify j);

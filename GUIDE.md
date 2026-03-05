@@ -138,10 +138,14 @@ All container descriptors support:
 
 ```cpp
 Col{ ... }
-    .size(fixed(7))                       // layout constraint
-    .justify(Layout::Justify::SpaceBetween) // justify children
-    .gap(1)                               // gap between children (cells)
+    .size(fixed(7))                         // main-axis (height for Col)
+    .cross(fixed(40))                       // cross-axis (width for Col)
+    .justify(Layout::Justify::SpaceBetween) // justify children along main axis
+    .cross_align(Layout::Align::Center)     // align children along cross axis
+    .gap(1)                                 // gap between children (cells)
 ```
+
+Every leaf descriptor also accepts `.cross(Constraint)` to limit its cross-axis size when placed inside a `Row` or `Col`.
 
 `ScrollView` additionally:
 
@@ -299,21 +303,58 @@ inner->add<Label>(Constraint::fixed(1), "Inside the block");
 
 ### Constraints
 
-Each widget added to a container carries a `Constraint` that determines its size along the container's main axis:
+Each widget carries two independent constraints: **main-axis** (set via `.size()`) and **cross-axis** (set via `.cross()`).
+
+| | `Col` (vertical) | `Row` (horizontal) |
+|---|---|---|
+| Main axis | height | width |
+| Cross axis | width | height |
 
 | Constraint | Meaning |
 |---|---|
 | `fixed(n)` | Exactly `n` cells |
 | `fill(w=1)` | Proportional share of remaining space (weight `w`) |
-| `min(n)` | At least `n` cells; acts like `fixed(n)` in current implementation |
-| `max(n)` | Up to `n` cells from the Fill pool |
+| `min(n)` | At least `n` cells; grows into remaining space |
+| `max(n)` | Up to `n` cells from the fill pool |
 | `percentage(p)` | `p`% of available space (0–100) |
 
 **Fill weights** — two `fill(1)` siblings each get 50 %; `fill(2)` and `fill(1)` split space 2:1.
 
+### Cross-axis size and alignment
+
+By default every child stretches to fill the full cross-axis of its slot. Override this with `.cross()`:
+
+```cpp
+// In a Row, limit a column's height to 5 rows and center it vertically
+Row{
+    Col{ ... }.size(fixed(30)).cross(fixed(5)),
+    Col{ ... }.size(fill()),
+}.cross_align(Layout::Align::Center)
+```
+
+| `.cross(constraint)` | Cross-axis behavior |
+|---|---|
+| `fill()` (default) | Stretch to fill the full cross-axis slot |
+| `fixed(n)` | Exactly `n` cells in the cross direction |
+| `max(n)` | At most `n` cells |
+| `percentage(p)` | `p`% of the cross-axis slot |
+
+When a child's cross size is less than the full slot, `cross_align` on the container positions it:
+
+```cpp
+Col{ ... }.cross_align(Layout::Align::Center)   // center children horizontally
+Row{ ... }.cross_align(Layout::Align::End)       // align children to the bottom
+```
+
+| `.cross_align(value)` | Position |
+|---|---|
+| `Align::Start` (default) | Top / left |
+| `Align::Center` | Centered |
+| `Align::End` | Bottom / right |
+
 ### Justify
 
-When children have `fixed`/`min` constraints (no `fill`), the remaining space can be distributed:
+When children have `fixed`/`min` constraints (no `fill`), the remaining **main-axis** space can be distributed:
 
 ```cpp
 Row{ ... }.justify(Layout::Justify::SpaceBetween)

@@ -269,10 +269,13 @@ This design means:
 
 ```
 Container::render(canvas):
-    rects = layout_.split(canvas.area(), constraints_)
+    rects = layout_.split(canvas.area(), constraints_)   // main-axis only
     for i, child in children_:
-        child->last_rect_ = rects[i]           // store absolute rect for mouse hit-test
-        child_canvas = canvas.sub_canvas(rects[i])
+        r = rects[i]
+        // apply cross-axis constraint (see §8 for full algorithm)
+        r = apply_cross(r, cross_constraints_[i], cross_align_)
+        child->last_rect_ = r          // store absolute rect for mouse hit-test
+        child_canvas = canvas.sub_canvas(r)
         child->render(child_canvas)
         child->dirty_ = false
 ```
@@ -283,39 +286,42 @@ Container::render(canvas):
 
 ## 8. The Layout Algorithm
 
-**Source:** `src/layout/layout.cpp` — `Layout::split()`
+**Source:** `src/layout/layout.cpp`, `src/core/container.cpp`
 
-Input: an absolute `Rect area` and a `vector<Constraint>`. Output: a `vector<Rect>` of the same length, positioned within `area`.
+### Main-axis: `Layout::split()`
+
+Input: an absolute `Rect area` and a `vector<Constraint>`. Output: a `vector<Rect>` of the same length, positioned within `area`. Only the **main-axis** dimension of each rect is computed here; the cross-axis is always set to the full slot (`area.height` for horizontal, `area.width` for vertical).
 
 ### Pass 1 — Resolve Non-Fill Constraints
 
 ```
-allocated = 0
+allocated = 0, fill_weight_total = 0
 for each constraint:
     Fixed(n):      sizes[i] = n;          allocated += n
     Percentage(p): sizes[i] = area*p/100; allocated += sizes[i]
-    Min(n):        sizes[i] = n;          allocated += n
-    Max/Fill:      accumulate fill_weight_total
+    Min(n):        sizes[i] = n;          allocated += n; fill_weight_total += 1
+    Max:           fill_weight_total += 1
+    Fill(w):       fill_weight_total += w
 ```
 
 `available = total - gap_total`. `remaining = available - allocated`.
 
-### Pass 2 — Distribute Remaining Space to Fill/Max
+`Min` widgets contribute their floor to `allocated` **and** participate in the fill distribution so they can grow beyond the minimum.
+
+### Pass 2 — Distribute Remaining Space to Fill / Max / Min
 
 ```
-for each Fill(w) constraint:
-    sizes[i] = remaining * w / total_fill_weight
+for each Fill(w):   sizes[i] = remaining * w / total_weight
+for each Max(cap):  sizes[i] = min(remaining / total_weight, cap)
+for each Min(n):    sizes[i] += remaining / total_weight   (adds above floor)
 
-for each Max(cap) constraint:
-    sizes[i] = min(remaining / total_fill_weight, cap)
-
-# Integer rounding: give leftover cells to the last Fill widget
-sizes[last_fill_idx] += (remaining - distributed)
+# Integer rounding: walk backward from last fill-capable widget,
+# adding leftover to the first non-Max widget found.
 ```
 
 ### Pass 3 — Apply Justify and Compute Rects
 
-When `fill` constraints absorb all space, `true_remaining == 0` and `justify` has no effect. Otherwise:
+When `fill`/`min` constraints absorb all space, `true_remaining == 0` and `justify` has no effect. Otherwise:
 
 | Justify | Effect |
 |---|---|
@@ -326,6 +332,31 @@ When `fill` constraints absorb all space, `true_remaining == 0` and `justify` ha
 | `SpaceAround` | Distributes `true_remaining` as slots around and between children |
 
 Finally, rects are computed by walking from `start_offset`, advancing by `sizes[i] + gaps[i]`.
+
+### Cross-axis: `Container::render()`
+
+After `Layout::split()` returns the main-axis rects, `Container::render()` applies the per-child **cross-axis constraint** stored in `cross_constraints_[i]`:
+
+```
+for each child i:
+    r = rects[i]                         // from Layout::split()
+    full_cross = r.height (horiz) or r.width (vert)
+    child_cross = resolve_cross(cross_constraints_[i], full_cross)
+        fill() / min() → full_cross        (stretch — default)
+        fixed(n) / max(n) → min(n, full_cross)
+        percentage(p) → full_cross * p / 100
+
+    if child_cross < full_cross:
+        offset based on container's cross_align_:
+            Start  → 0
+            Center → (full_cross - child_cross) / 2
+            End    → full_cross - child_cross
+        shrink r's cross dimension to child_cross, shift by offset
+
+    render child into sub_canvas(r)
+```
+
+When `cross` is `fill()` (the default), `child_cross == full_cross` and the offset logic is never reached — zero regression for existing code.
 
 ### Gap
 
