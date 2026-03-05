@@ -267,13 +267,17 @@ public:
 // ── Checkbox ──────────────────────────────────────────────────────────────────
 class Checkbox {
     std::string                  label_;
-    bool                         checked_   = false;
-    strata::Constraint           size_      = strata::Constraint::fill();
-    strata::Constraint           cross_     = strata::Constraint::fill();
+    bool                         checked_        = false;
+    strata::Constraint           size_           = strata::Constraint::fill();
+    strata::Constraint           cross_          = strata::Constraint::fill();
     std::function<void(bool)>    on_change_;
-    int                          tab_index_ = 0;
+    int                          tab_index_      = 0;
     std::string                  focus_group_;
-    mutable strata::Checkbox**   ref_       = nullptr;
+    strata::Style                style_;
+    strata::Style                focused_style_;
+    bool                         has_style_          = false;
+    bool                         has_focused_style_  = false;
+    mutable strata::Checkbox**   ref_           = nullptr;
 public:
     explicit Checkbox(std::string label) : label_(std::move(label)) {}
 
@@ -284,12 +288,16 @@ public:
     Checkbox& tab_index(int i)                     { tab_index_ = i;            return *this; }
     Checkbox& group(std::string g)                 { focus_group_ = std::move(g); return *this; }
     Checkbox& bind(strata::Checkbox*& ref)         { ref_       = &ref;         return *this; }
+    Checkbox& style(strata::Style s)               { style_ = s; has_style_ = true; return *this; }
+    Checkbox& focused_style(strata::Style s)       { focused_style_ = s; has_focused_style_ = true; return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto w = std::make_unique<strata::Checkbox>(label_, checked_);
         if (on_change_) w->on_change = on_change_;
         w->tab_index = tab_index_;
         if (!focus_group_.empty()) w->set_focus_group(focus_group_);
+        if (has_style_)         w->set_style(style_);
+        if (has_focused_style_) w->set_focused_style(focused_style_);
         if (ref_) *ref_ = w.get();
         return w;
     }

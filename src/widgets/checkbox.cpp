@@ -4,7 +4,11 @@
 namespace strata {
 
 Checkbox::Checkbox(std::string label, bool checked)
-    : label_(std::move(label)), checked_(checked) {}
+    : label_(std::move(label)), checked_(checked)
+{
+    style_         = Style{}.with_fg(color::White);
+    focused_style_ = Style{}.with_fg(color::BrightWhite).with_bold();
+}
 
 Checkbox& Checkbox::set_label(std::string label) {
     label_ = std::move(label);
@@ -18,19 +22,28 @@ Checkbox& Checkbox::set_checked(bool checked) {
     return *this;
 }
 
+Checkbox& Checkbox::set_style(Style style) {
+    style_ = style;
+    mark_dirty();
+    return *this;
+}
+
+Checkbox& Checkbox::set_focused_style(Style style) {
+    focused_style_ = style;
+    mark_dirty();
+    return *this;
+}
+
 void Checkbox::render(Canvas& canvas) {
-    canvas.fill(U' ');
+    const Style& s = is_focused() ? focused_style_ : style_;
+    canvas.fill(U' ', s);
 
     Style check_s = checked_
         ? Style{}.with_fg(color::BrightGreen).with_bold()
         : Style{}.with_fg(color::BrightBlack);
 
-    Style label_s = is_focused()
-        ? Style{}.with_fg(color::BrightWhite).with_bold()
-        : Style{}.with_fg(color::White);
-
     canvas.draw_text(0, 0, checked_ ? "[x]" : "[ ]", check_s);
-    canvas.draw_text(4, 0, label_, label_s);
+    canvas.draw_text(4, 0, label_, s);
 
     dirty_ = false;
 }

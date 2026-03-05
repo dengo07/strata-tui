@@ -11,6 +11,8 @@ namespace strata {
 class Checkbox : public Widget {
     std::string label_;
     bool        checked_ = false;
+    Style       style_;
+    Style       focused_style_;
 
 public:
     std::function<void(bool)> on_change;
@@ -19,6 +21,8 @@ public:
 
     Checkbox& set_label(std::string label);
     Checkbox& set_checked(bool checked);
+    Checkbox& set_style(Style style);
+    Checkbox& set_focused_style(Style style);
 
     bool is_checked() const { return checked_; }
 

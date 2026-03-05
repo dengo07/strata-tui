@@ -259,6 +259,8 @@ int main() {
             Checkbox("")
                 .size(fixed(1))
                 .group("list")
+                .style(Style{}.with_fg(color::White))
+                .focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan))
                 .bind(slots[i])
                 .change([&, i](bool checked){
                     cursor = i;
@@ -388,7 +390,7 @@ int main() {
 ```
 
 **Key ideas:**
-- **Checkbox slots** replace Labels — Space/Enter toggles the item done/undone; the `change` callback also records `cursor` (last-interacted slot position in the view).
+- **Checkbox slots** replace Labels — Space/Enter toggles the item done/undone; the `change` callback also records `cursor` (last-interacted slot position in the view). `.style()` / `.focused_style()` control the label text and row background for unfocused and focused states respectively.
 - **`view[]` + filter**: `Select` drives a mode (All/Active/Done); `refresh()` rebuilds `view` and re-syncs all slots on every change.
 - **Stats label** is a plain `Label*` updated by `refresh()` — no special widget needed, just a bound pointer and `set_text()`.
 - **Modal confirmation** for delete: press `d` to open a two-button dialog; Tab cycles between Yes/No; Escape closes without deleting. See [Modal with confirmation](#modal-with-confirmation).
