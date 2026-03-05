@@ -12,7 +12,7 @@ int main() {
     struct Item { std::string text; bool done = false; };
     std::vector<Item> items;
     std::vector<int>  view;   // filtered indices into items
-    int cursor = 0;           // last-interacted slot position in view
+    int del_slot   = -1;      // slot index being deleted (set when modal opens)
     int confirm_id = -1;
 
     strata::Label*  stats_lbl    = nullptr;
@@ -26,10 +26,10 @@ int main() {
         slot_nodes.push_back(
             Checkbox("")
                 .size(fixed(1))
+                .focused_style(Style{}.with_bg(color::White))
                 .group("list")
                 .bind(slots[i])
                 .change([&, i](bool checked){
-                    cursor = i;
                     if (i < (int)view.size())
                         items[view[i]].done = checked;
                     int done = (int)std::count_if(items.begin(), items.end(),
@@ -111,8 +111,14 @@ int main() {
     app.on_event = [&](const Event& e) {
         if (app.has_modal()) return;
         if (is_char(e, 'q')) app.quit();
-        if (is_char(e, 'd') && cursor < (int)view.size()) {
-            const std::string item_text = items[view[cursor]].text;
+        // Find which slot is currently focused
+        int focused_slot = -1;
+        for (int i = 0; i < MAX_ITEMS; ++i)
+            if (slots[i] && slots[i]->is_focused()) { focused_slot = i; break; }
+
+        if (is_char(e, 'd') && focused_slot >= 0 && focused_slot < (int)view.size()) {
+            del_slot = focused_slot;
+            const std::string item_text = items[view[del_slot]].text;
             confirm_id = app.open_modal(
                 ModalDesc()
                     .title(" Delete Item ")
@@ -131,9 +137,8 @@ int main() {
                                     .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
                                     .click([&]{
                                         app.close_modal(confirm_id);
-                                        if (cursor < (int)view.size()) {
-                                            items.erase(items.begin() + view[cursor]);
-                                            if (cursor > 0) --cursor;
+                                        if (del_slot < (int)view.size()) {
+                                            items.erase(items.begin() + view[del_slot]);
                                             refresh();
                                         }
                                     })

@@ -244,7 +244,7 @@ int main() {
     struct Item { std::string text; bool done = false; };
     std::vector<Item> items;
     std::vector<int>  view;   // filtered indices into items
-    int cursor = 0;           // last-interacted slot position in view
+    int del_slot   = -1;      // slot index being deleted (set when modal opens)
     int confirm_id = -1;
 
     strata::Label*  stats_lbl    = nullptr;
@@ -263,7 +263,6 @@ int main() {
                 .focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan))
                 .bind(slots[i])
                 .change([&, i](bool checked){
-                    cursor = i;
                     if (i < (int)view.size())
                         items[view[i]].done = checked;
                     int done = (int)std::count_if(items.begin(), items.end(),
@@ -345,8 +344,14 @@ int main() {
     app.on_event = [&](const Event& e) {
         if (app.has_modal()) return;
         if (is_char(e, 'q')) app.quit();
-        if (is_char(e, 'd') && cursor < (int)view.size()) {
-            const std::string item_text = items[view[cursor]].text;
+        // Find which slot is currently focused
+        int focused_slot = -1;
+        for (int i = 0; i < MAX_ITEMS; ++i)
+            if (slots[i] && slots[i]->is_focused()) { focused_slot = i; break; }
+
+        if (is_char(e, 'd') && focused_slot >= 0 && focused_slot < (int)view.size()) {
+            del_slot = focused_slot;
+            const std::string item_text = items[view[del_slot]].text;
             confirm_id = app.open_modal(
                 ModalDesc()
                     .title(" Delete Item ")
@@ -365,9 +370,8 @@ int main() {
                                     .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
                                     .click([&]{
                                         app.close_modal(confirm_id);
-                                        if (cursor < (int)view.size()) {
-                                            items.erase(items.begin() + view[cursor]);
-                                            if (cursor > 0) --cursor;
+                                        if (del_slot < (int)view.size()) {
+                                            items.erase(items.begin() + view[del_slot]);
                                             refresh();
                                         }
                                     })
@@ -393,7 +397,7 @@ int main() {
 - **Checkbox slots** replace Labels — Space/Enter toggles the item done/undone; the `change` callback also records `cursor` (last-interacted slot position in the view). `.style()` / `.focused_style()` control the label text and row background for unfocused and focused states respectively.
 - **`view[]` + filter**: `Select` drives a mode (All/Active/Done); `refresh()` rebuilds `view` and re-syncs all slots on every change.
 - **Stats label** is a plain `Label*` updated by `refresh()` — no special widget needed, just a bound pointer and `set_text()`.
-- **Modal confirmation** for delete: press `d` to open a two-button dialog; Tab cycles between Yes/No; Escape closes without deleting. See [Modal with confirmation](#modal-with-confirmation).
+- **Modal confirmation** for delete: press `d` to open a two-button dialog targeting the *focused* item — the handler iterates `slots` and calls `is_focused()` to find the correct slot rather than tracking a separate cursor variable. Tab cycles between Yes/No; Escape closes without deleting. See [Modal with confirmation](#modal-with-confirmation).
 - **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
 
 ### 2d. Dashboard with Async Updates
