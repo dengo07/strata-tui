@@ -25,19 +25,20 @@ void ScrollView::remove(Widget* w) {
             children_.erase(children_.begin() + i);
             constraints_.erase(constraints_.begin() + i);
             mark_dirty();
+            if (mounted_ && Widget::s_on_focus_rebuild_) Widget::s_on_focus_rebuild_();
             return;
         }
     }
 }
 
 void ScrollView::clear() {
-    if (mounted_ && Widget::s_on_subtree_removed_) {
+    if (mounted_ && Widget::s_on_subtree_removed_)
         for (auto& child : children_) Widget::s_on_subtree_removed_(child.get());
-    }
     children_.clear();
     constraints_.clear();
     scroll_y_ = 0;
     mark_dirty();
+    if (mounted_ && Widget::s_on_focus_rebuild_) Widget::s_on_focus_rebuild_();
 }
 
 void ScrollView::scroll_to(int y) {

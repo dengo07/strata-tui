@@ -31,9 +31,10 @@ protected:
     // Set by animated widgets during render(); cleared by App after each frame.
     // Causes App to re-mark root dirty so animation continues next frame.
     static bool s_needs_rerender_;
-    // Set by App during run() so Container can trigger mount/focus-rebuild dynamically.
-    static std::function<void(Widget*)> s_on_subtree_added_;
-    static std::function<void(Widget*)> s_on_subtree_removed_;
+    // Set by App during run() so Container/ScrollView can trigger lifecycle hooks dynamically.
+    static std::function<void(Widget*)> s_on_subtree_added_;    // mount subtree + rebuild focus
+    static std::function<void(Widget*)> s_on_subtree_removed_;  // unmount subtree ONLY (no rebuild)
+    static std::function<void()>        s_on_focus_rebuild_;    // rebuild focus (called after erase)
 
     // Lifecycle hooks — override in subclasses as needed
     virtual void on_mount()   {}

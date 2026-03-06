@@ -21,24 +21,29 @@ Widget* Container::add(std::unique_ptr<Widget> widget, Constraint main, Constrai
 void Container::remove(Widget* w) {
     for (size_t i = 0; i < children_.size(); ++i) {
         if (children_[i].get() == w) {
+            // Unmount first (while still in children_ so DFS is consistent),
+            // then erase, then rebuild focus on the now-clean tree.
             if (mounted_ && s_on_subtree_removed_) s_on_subtree_removed_(children_[i].get());
             children_.erase(children_.begin() + i);
             constraints_.erase(constraints_.begin() + i);
             cross_constraints_.erase(cross_constraints_.begin() + i);
             mark_dirty();
+            if (mounted_ && s_on_focus_rebuild_) s_on_focus_rebuild_();
             return;
         }
     }
 }
 
 void Container::clear() {
-    if (mounted_ && s_on_subtree_removed_) {
+    // Unmount every child while the vector is still intact so DFS is consistent.
+    if (mounted_ && s_on_subtree_removed_)
         for (auto& child : children_) s_on_subtree_removed_(child.get());
-    }
+    // Erase first, then rebuild focus once on the now-empty tree.
     children_.clear();
     constraints_.clear();
     cross_constraints_.clear();
     mark_dirty();
+    if (mounted_ && s_on_focus_rebuild_) s_on_focus_rebuild_();
 }
 
 // Resolve a cross-axis constraint to an absolute size given the full cross slot.

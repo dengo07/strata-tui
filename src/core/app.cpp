@@ -315,8 +315,12 @@ void App::run() {
         mount_all(w);
         focus_->rebuild(root_.get());
     };
+    // Unmount only — no focus rebuild here. Callers (remove/clear) do the
+    // erase first, then fire s_on_focus_rebuild_ once on the clean tree.
     Widget::s_on_subtree_removed_ = [this](Widget* w) {
         unmount_all(w);
+    };
+    Widget::s_on_focus_rebuild_ = [this]() {
         focus_->rebuild(root_.get());
     };
 
@@ -356,6 +360,7 @@ void App::run() {
 
     Widget::s_on_subtree_added_   = nullptr;
     Widget::s_on_subtree_removed_ = nullptr;
+    Widget::s_on_focus_rebuild_   = nullptr;
 }
 
 } // namespace strata

@@ -5,6 +5,7 @@ namespace strata {
 bool Widget::s_needs_rerender_ = false;
 std::function<void(Widget*)> Widget::s_on_subtree_added_;
 std::function<void(Widget*)> Widget::s_on_subtree_removed_;
+std::function<void()>        Widget::s_on_focus_rebuild_;
 
 void Widget::mark_dirty() {
     dirty_ = true;
