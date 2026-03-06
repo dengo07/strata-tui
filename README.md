@@ -382,7 +382,170 @@ int main() {
 - **Stats label** is a plain `Label*` updated by `update_stats()` — no special widget needed, just a bound pointer and `set_text()`.
 - **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
 
-### 2d. Dashboard with Async Updates
+### 2d. Kanban Board
+
+Three columns (Backlog / In Progress / Done) whose cards are real widgets created, moved, and destroyed at runtime — a direct showcase of `add()`, `clear()`, and `remove()`.
+
+```cpp
+#include <Strata/ui.hpp>
+using namespace strata::ui;
+#include <vector>
+#include <string>
+#include <algorithm>
+
+int main() {
+    App app;
+
+    struct Card {
+        std::string text;
+        int         col    = 0;   // 0=Backlog  1=In Progress  2=Done
+        strata::Checkbox* widget = nullptr;
+    };
+    std::vector<Card> cards;
+
+    strata::ScrollView* cols[3]   = {};
+    strata::Label*      counts[3] = {};
+    strata::Input*      inp       = nullptr;
+    strata::Select*     col_sel   = nullptr;
+
+    static const char* const kNames[3]  = { "Backlog", "In Progress", "Done" };
+    static const char* const kGroups[3] = { "backlog", "progress",    "done" };
+
+    auto card_style = [](int c) -> Style {
+        if (c == 0) return Style{}.with_fg(color::BrightBlue);
+        if (c == 1) return Style{}.with_fg(color::BrightYellow);
+        return Style{}.with_fg(color::BrightGreen);
+    };
+    auto card_focused_style = [](int c) -> Style {
+        if (c == 0) return Style{}.with_fg(color::Black).with_bg(color::BrightBlue).with_bold();
+        if (c == 1) return Style{}.with_fg(color::Black).with_bg(color::BrightYellow).with_bold();
+        return Style{}.with_fg(color::Black).with_bg(color::BrightGreen).with_bold();
+    };
+
+    // rebuild() — clear all three ScrollViews and re-add cards that belong there.
+    // Each sv->add<Checkbox>() triggers on_mount() + focus rebuild automatically.
+    auto rebuild = [&]{
+        for (int c = 0; c < 3; ++c)
+            if (cols[c]) cols[c]->clear();
+        int cnt[3] = {};
+        for (int i = 0; i < (int)cards.size(); ++i) {
+            int c = cards[i].col;
+            if (!cols[c]) { cards[i].widget = nullptr; continue; }
+            ++cnt[c];
+            auto* cb = cols[c]->add<strata::Checkbox>(
+                strata::Constraint::fixed(1), " " + cards[i].text);
+            cb->set_style(card_style(c));
+            cb->set_focused_style(card_focused_style(c));
+            cb->set_focus_group(kGroups[c]);
+            cards[i].widget = cb;
+        }
+        for (int c = 0; c < 3; ++c)
+            if (counts[c])
+                counts[c]->set_text(std::to_string(cnt[c]) +
+                                    (cnt[c] == 1 ? " card" : " cards"));
+    };
+
+    populate(app, {
+        Col({
+            Label("  Kanban  ─  m: move right  d: delete  c: clear column  q: quit")
+                .style(Style{}.with_fg(color::BrightBlack))
+                .size(fixed(1)),
+            Label("").size(fixed(1)),
+            Row({
+                Label(" Add to: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(9)).cross(fixed(1)),
+                Select()
+                    .items({"Backlog", "In Progress", "Done"})
+                    .group("input").size(fixed(16)).cross(fixed(1))
+                    .bind(col_sel),
+                Label("  ").size(fixed(2)).cross(fixed(1)),
+                Block().inner(
+                    Input()
+                        .placeholder("card title, then Enter…")
+                        .group("input")
+                        .bind(inp)
+                        .submit([&](const std::string& val){
+                            if (!val.empty()) {
+                                int c = col_sel ? col_sel->selected() : 0;
+                                cards.push_back({val, c, nullptr});
+                                inp->set_value("");
+                                rebuild();
+                            }
+                        })
+                ).border(Style{}.with_fg(color::White)).size(fill()),
+            }).size(fixed(3)).cross_align(Layout::Align::Center),
+            Label("").size(fixed(1)),
+            Row({
+                Block(" Backlog ")
+                    .focused_title(Style{}.with_bg(color::Blue))
+                    .border(Style{}.with_fg(color::Blue).with_bold())
+                    .inner(Col({
+                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[0]),
+                        Label("").size(fixed(1)),
+                        ScrollView({}).group("backlog").tab_index(99).bind(cols[0]),
+                    })),
+                Block(" In Progress ")
+                    .focused_title(Style{}.with_bg(color::Yellow))
+                    .border(Style{}.with_fg(color::Yellow).with_bold())
+                    .inner(Col({
+                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[1]),
+                        Label("").size(fixed(1)),
+                        ScrollView({}).group("progress").tab_index(99).bind(cols[1]),
+                    })),
+                Block(" Done ")
+                    .focused_title(Style{}.with_bg(color::Green))
+                    .border(Style{}.with_fg(color::Green).with_bold())
+                    .inner(Col({
+                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[2]),
+                        Label("").size(fixed(1)),
+                        ScrollView({}).group("done").tab_index(99).bind(cols[2]),
+                    })),
+            }),
+        })
+    });
+
+    app.on_event = [&](const Event& e) {
+        if (is_char(e, 'q')) { app.quit(); return; }
+
+        int focused = -1;
+        for (int i = 0; i < (int)cards.size(); ++i)
+            if (cards[i].widget && cards[i].widget->is_focused()) { focused = i; break; }
+        if (focused < 0) return;
+
+        if (is_char(e, 'm')) {
+            cards[focused].col = (cards[focused].col + 1) % 3;
+            app.notify("Moved to " + std::string(kNames[cards[focused].col]),
+                       cards[focused].text, strata::AlertManager::Level::Info, 1500);
+            rebuild();
+        }
+        if (is_char(e, 'd')) {
+            app.notify("Deleted", cards[focused].text,
+                       strata::AlertManager::Level::Warning, 1500);
+            cards.erase(cards.begin() + focused);
+            rebuild();
+        }
+        if (is_char(e, 'c')) {
+            int col = cards[focused].col;
+            app.notify("Cleared " + std::string(kNames[col]), "",
+                       strata::AlertManager::Level::Warning, 1500);
+            cards.erase(std::remove_if(cards.begin(), cards.end(),
+                [col](const Card& card){ return card.col == col; }), cards.end());
+            rebuild();
+        }
+    };
+
+    app.run();
+}
+```
+
+**Key ideas:**
+- **`rebuild()`** calls `sv->clear()` on all three columns then `sv->add<strata::Checkbox>()` per visible card. `on_mount()` and focus-list rebuild happen automatically on every add; `on_unmount()` on every clear. No manual lifecycle bookkeeping.
+- **`cards[i].widget`** stores the live `Checkbox*` so `is_focused()` can identify which card the user has selected before acting on it.
+- **Moving** (`m`) is just `cards[i].col = next; rebuild()` — the old widget is destroyed by `clear()` and a new one appears in the destination column.
+- **Clearing a column** (`c`) uses `std::remove_if` on the data vector then `rebuild()` — `sv->clear()` unmounts all children in one call rather than one-by-one.
+- **`tab_index(99)`** on each `ScrollView` pushes the container itself to the back of its focus group so Tab always lands on the first *card*, not the scroll container.
+- **Toast notifications** via `app.notify()` confirm each destructive action with a 1.5-second overlay.
+
+### 2e. Dashboard with Async Updates
 
 Three live metrics read from the Linux `/proc` filesystem — CPU usage, memory pressure, and network throughput — with color-coded status labels and a `Spinner` for visual feedback.
 
