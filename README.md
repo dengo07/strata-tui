@@ -227,7 +227,7 @@ int main() {
 
 ### 2c. To-Do List
 
-An `Input` for adding items, `Checkbox` slots for toggling completion, a `Select` filter, and a modal confirmation for deletion — all in a scrollable panel.
+An `Input` for adding items, `Checkbox` widgets added and removed dynamically, a `Select` filter, and a modal confirmation for deletion — all in a scrollable panel.
 
 ```cpp
 #include <Strata/ui.hpp>
@@ -236,67 +236,51 @@ using namespace strata::ui;
 #include <string>
 #include <algorithm>
 
-static const int MAX_ITEMS = 64;
-
 int main() {
     App app;
 
-    struct Item { std::string text; bool done = false; };
+    // widget pointer stored per item so we can detect focus and call remove()
+    struct Item { std::string text; bool done = false; strata::Checkbox* widget = nullptr; };
     std::vector<Item> items;
-    std::vector<int>  view;   // filtered indices into items
-    int del_slot   = -1;      // slot index being deleted (set when modal opens)
+
+    strata::Label*      stats_lbl    = nullptr;
+    strata::Input*      input_widget = nullptr;
+    strata::Select*     filter_sel   = nullptr;
+    strata::ScrollView* sv           = nullptr;
+    int del_idx    = -1;
     int confirm_id = -1;
 
-    strata::Label*  stats_lbl    = nullptr;
-    strata::Input*  input_widget = nullptr;
-    strata::Select* filter_sel   = nullptr;
-
-    std::vector<strata::Checkbox*> slots(MAX_ITEMS, nullptr);
-    std::vector<Node> slot_nodes;
-    slot_nodes.reserve(MAX_ITEMS);
-    for (int i = 0; i < MAX_ITEMS; ++i) {
-        slot_nodes.push_back(
-            Checkbox("")
-                .size(fixed(1))
-                .group("list")
-                .style(Style{}.with_fg(color::White))
-                .focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan))
-                .bind(slots[i])
-                .change([&, i](bool checked){
-                    if (i < (int)view.size())
-                        items[view[i]].done = checked;
-                    int done = (int)std::count_if(items.begin(), items.end(),
-                                    [](const Item& it){ return it.done; });
-                    if (stats_lbl)
-                        stats_lbl->set_text(std::to_string(done) + "/" +
-                                            std::to_string(items.size()) + " done");
-                })
-        );
-    }
-
-    auto refresh = [&]{
-        int mode = filter_sel ? filter_sel->selected() : 0;
-        view.clear();
-        for (int i = 0; i < (int)items.size(); ++i) {
-            if (mode == 0) view.push_back(i);
-            else if (mode == 1 && !items[i].done) view.push_back(i);
-            else if (mode == 2 &&  items[i].done) view.push_back(i);
-        }
-        for (int s = 0; s < MAX_ITEMS; ++s) {
-            if (!slots[s]) continue;
-            if (s < (int)view.size()) {
-                slots[s]->set_label(" " + items[view[s]].text);
-                slots[s]->set_checked(items[view[s]].done);
-            } else {
-                slots[s]->set_label("");
-                slots[s]->set_checked(false);
-            }
-        }
+    auto update_stats = [&]{
+        if (!stats_lbl) return;
         int done = (int)std::count_if(items.begin(), items.end(),
                         [](const Item& it){ return it.done; });
-        if (stats_lbl)
-            stats_lbl->set_text(std::to_string(done) + "/" +
-                                std::to_string(items.size()) + " done");
+        stats_lbl->set_text(std::to_string(done) + "/" +
+                            std::to_string(items.size()) + " done");
+    };
+
+    // rebuild_list() clears the ScrollView and re-adds one Checkbox per visible item.
+    // Called on add, delete, and filter change.
+    std::function<void()> rebuild_list;
+    rebuild_list = [&]{
+        if (!sv) return;
+        int mode = filter_sel ? filter_sel->selected() : 0;
+        sv->clear();  // unmounts all existing checkboxes
+        for (int i = 0; i < (int)items.size(); ++i) {
+            items[i].widget = nullptr;
+            if (mode == 1 && items[i].done)  continue;  // Active: hide done
+            if (mode == 2 && !items[i].done) continue;  // Done:   hide active
+            auto* cb = sv->add<strata::Checkbox>(
+                strata::Constraint::fixed(1), " " + items[i].text, items[i].done);
+            cb->set_focus_group("list");
+            cb->set_style(Style{}.with_fg(color::White));
+            cb->set_focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan));
+            cb->on_change = [&, i](bool checked){
+                items[i].done = checked;
+                update_stats();
+            };
+            items[i].widget = cb;
+        }
+        update_stats();
     };
 
     populate(app, {
@@ -312,10 +296,10 @@ int main() {
                             .size(fill())
                             .bind(input_widget)
                             .submit([&](const std::string& val){
-                                if (!val.empty() && (int)items.size() < MAX_ITEMS) {
-                                    items.push_back({val, false});
+                                if (!val.empty()) {
+                                    items.push_back({val, false, nullptr});
                                     input_widget->set_value("");
-                                    refresh();
+                                    rebuild_list();
                                 }
                             }),
                     }).size(fixed(1)),
@@ -326,12 +310,12 @@ int main() {
                             .group("filter")
                             .size(fill())
                             .bind(filter_sel)
-                            .change([&](int, const std::string&){ refresh(); }),
+                            .change([&](int, const std::string&){ rebuild_list(); }),
                         Label("").style(Style{}.with_fg(color::BrightBlack))
                             .size(fixed(10)).bind(stats_lbl),
                     }).size(fixed(1)),
                     Label("").size(fixed(1)),
-                    ScrollView(std::move(slot_nodes)).group("list"),
+                    ScrollView({}).group("list").bind(sv),  // starts empty
                     Label("  Tab: switch section  ·  d: delete item")
                         .style(Style{}.with_fg(color::BrightBlack))
                         .size(fixed(1)),
@@ -339,53 +323,50 @@ int main() {
             )
     });
 
-    refresh();
-
     app.on_event = [&](const Event& e) {
         if (app.has_modal()) return;
         if (is_char(e, 'q')) app.quit();
-        // Find which slot is currently focused
-        int focused_slot = -1;
-        for (int i = 0; i < MAX_ITEMS; ++i)
-            if (slots[i] && slots[i]->is_focused()) { focused_slot = i; break; }
+        if (is_char(e, 'd')) {
+            del_idx = -1;
+            for (int i = 0; i < (int)items.size(); ++i)
+                if (items[i].widget && items[i].widget->is_focused()) { del_idx = i; break; }
 
-        if (is_char(e, 'd') && focused_slot >= 0 && focused_slot < (int)view.size()) {
-            del_slot = focused_slot;
-            const std::string item_text = items[view[del_slot]].text;
-            confirm_id = app.open_modal(
-                ModalDesc()
-                    .title(" Delete Item ")
-                    .size(44, 8)
-                    .border(Style{}.with_fg(color::Red))
-                    .on_close([&]{ app.close_modal(confirm_id); })
-                    .inner(
-                        Col({
-                            Label("  Delete \"" + item_text + "\"?")
-                                .style(Style{}.with_fg(color::White))
-                                .size(fixed(1)),
-                            Label("").size(fixed(1)),
-                            Row({
-                                Button("Yes")
-                                    .style(Style{}.with_bg(color::Red).with_fg(color::White).with_bold())
-                                    .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
-                                    .click([&]{
-                                        app.close_modal(confirm_id);
-                                        if (del_slot < (int)view.size()) {
-                                            items.erase(items.begin() + view[del_slot]);
-                                            refresh();
-                                        }
-                                    })
-                                    .size(fixed(10)).cross(fixed(4)),
-                                Button("No")
-                                    .style(Style{}.with_bg(color::BrightBlack).with_fg(color::White))
-                                    .focused_style(Style{}.with_bg(color::White).with_fg(color::Black))
-                                    .click([&]{ app.close_modal(confirm_id); })
-                                    .size(fixed(10)).cross(fixed(4)),
-                            }).gap(2).justify(Layout::Justify::Center).size(fixed(4)),
-                        }).justify(Layout::Justify::Center)
-                    )
-                    .build_modal()
-            );
+            if (del_idx >= 0) {
+                confirm_id = app.open_modal(
+                    ModalDesc()
+                        .title(" Delete Item ")
+                        .size(44, 8)
+                        .border(Style{}.with_fg(color::Red))
+                        .on_close([&]{ app.close_modal(confirm_id); })
+                        .inner(
+                            Col({
+                                Label("  Delete \"" + items[del_idx].text + "\"?")
+                                    .style(Style{}.with_fg(color::White))
+                                    .size(fixed(1)),
+                                Label("").size(fixed(1)),
+                                Row({
+                                    Button("Yes")
+                                        .style(Style{}.with_bg(color::Red).with_fg(color::White).with_bold())
+                                        .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
+                                        .click([&]{
+                                            app.close_modal(confirm_id);
+                                            if (del_idx >= 0 && del_idx < (int)items.size()) {
+                                                items.erase(items.begin() + del_idx);
+                                                rebuild_list();
+                                            }
+                                        })
+                                        .size(fixed(10)).cross(fixed(4)),
+                                    Button("No")
+                                        .style(Style{}.with_bg(color::BrightBlack).with_fg(color::White))
+                                        .focused_style(Style{}.with_bg(color::White).with_fg(color::Black))
+                                        .click([&]{ app.close_modal(confirm_id); })
+                                        .size(fixed(10)).cross(fixed(4)),
+                                }).gap(2).justify(Layout::Justify::Center).size(fixed(4)),
+                            }).justify(Layout::Justify::Center)
+                        )
+                        .build_modal()
+                );
+            }
         }
     };
 
@@ -394,10 +375,11 @@ int main() {
 ```
 
 **Key ideas:**
-- **Checkbox slots** replace Labels — Space/Enter toggles the item done/undone; the `change` callback also records `cursor` (last-interacted slot position in the view). `.style()` / `.focused_style()` control the label text and row background for unfocused and focused states respectively.
-- **`view[]` + filter**: `Select` drives a mode (All/Active/Done); `refresh()` rebuilds `view` and re-syncs all slots on every change.
-- **Stats label** is a plain `Label*` updated by `refresh()` — no special widget needed, just a bound pointer and `set_text()`.
-- **Modal confirmation** for delete: press `d` to open a two-button dialog targeting the *focused* item — the handler iterates `slots` and calls `is_focused()` to find the correct slot rather than tracking a separate cursor variable. Tab cycles between Yes/No; Escape closes without deleting. See [Modal with confirmation](#modal-with-confirmation).
+- **No `MAX_ITEMS` cap**: `rebuild_list()` calls `sv->clear()` then `sv->add<strata::Checkbox>()` for each visible item — `on_mount()` and focus rebuild happen automatically for every add.
+- **`items[i].widget`**: each `Item` stores the raw pointer to its live `Checkbox`. After `sv->clear()` the old pointers are dangling (the widgets are destroyed), but `rebuild_list()` immediately resets them to the freshly created widgets.
+- **Filter**: `rebuild_list()` skips items that don't match the current mode, so only matching rows exist as real widgets — no empty placeholder slots.
+- **Delete**: `items.erase()` removes the data, then `rebuild_list()` tears down and rebuilds the widget list. No index bookkeeping beyond the `del_idx` captured before the modal opens.
+- **Stats label** is a plain `Label*` updated by `update_stats()` — no special widget needed, just a bound pointer and `set_text()`.
 - **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
 
 ### 2d. Dashboard with Async Updates
