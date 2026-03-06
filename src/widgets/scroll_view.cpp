@@ -13,7 +13,31 @@ Widget* ScrollView::add(std::unique_ptr<Widget> w, Constraint c) {
     children_.push_back(std::move(w));
     constraints_.push_back(c);
     mark_dirty();
-    return children_.back().get();
+    Widget* raw = children_.back().get();
+    if (mounted_ && Widget::s_on_subtree_added_) Widget::s_on_subtree_added_(raw);
+    return raw;
+}
+
+void ScrollView::remove(Widget* w) {
+    for (size_t i = 0; i < children_.size(); ++i) {
+        if (children_[i].get() == w) {
+            if (mounted_ && Widget::s_on_subtree_removed_) Widget::s_on_subtree_removed_(children_[i].get());
+            children_.erase(children_.begin() + i);
+            constraints_.erase(constraints_.begin() + i);
+            mark_dirty();
+            return;
+        }
+    }
+}
+
+void ScrollView::clear() {
+    if (mounted_ && Widget::s_on_subtree_removed_) {
+        for (auto& child : children_) Widget::s_on_subtree_removed_(child.get());
+    }
+    children_.clear();
+    constraints_.clear();
+    scroll_y_ = 0;
+    mark_dirty();
 }
 
 void ScrollView::scroll_to(int y) {

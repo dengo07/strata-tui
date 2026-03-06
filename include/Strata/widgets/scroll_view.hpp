@@ -42,6 +42,12 @@ public:
         return raw;
     }
 
+    // Remove a specific child. Calls on_unmount() if mounted; rebuilds focus.
+    void remove(Widget* w);
+
+    // Remove all children. Calls on_unmount() on each if mounted; rebuilds focus.
+    void clear();
+
     void scroll_to(int y);
     void scroll_by(int delta);
     int  scroll_y() const { return scroll_y_; }
