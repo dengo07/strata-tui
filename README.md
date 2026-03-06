@@ -382,31 +382,26 @@ int main() {
 - **Stats label** is a plain `Label*` updated by `update_stats()` — no special widget needed, just a bound pointer and `set_text()`.
 - **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
 
-### 2d. Kanban Board
+### 2d. Reactive Kanban Board
 
-Three columns (Backlog / In Progress / Done) whose cards are real widgets created, moved, and destroyed at runtime — a direct showcase of `add()`, `clear()`, and `remove()`.
+Three columns driven by `Reactive<vector<Card>>` and `ForEach` — a Flutter/SwiftUI-style showcase where mutating state automatically rebuilds only the affected widgets. No manual `rebuild()` function, no stored widget pointers per card.
 
 ```cpp
 #include <Strata/ui.hpp>
 using namespace strata::ui;
-#include <vector>
 #include <string>
 #include <algorithm>
 
 int main() {
     App app;
 
-    struct Card {
-        std::string text;
-        int         col    = 0;   // 0=Backlog  1=In Progress  2=Done
-        strata::Checkbox* widget = nullptr;
-    };
-    std::vector<Card> cards;
+    struct Card { int id; std::string text; int col = 0; };
 
-    strata::ScrollView* cols[3]   = {};
-    strata::Label*      counts[3] = {};
-    strata::Input*      inp       = nullptr;
-    strata::Select*     col_sel   = nullptr;
+    // ── Reactive state ─────────────────────────────────────────────────────
+    // Mutate this anywhere; the three ForEach columns rebuild automatically.
+    auto cards = make_state(std::vector<Card>{});
+    int  next_id     = 0;
+    int  selected_id = -1;   // tracks which card last gained focus
 
     static const char* const kNames[3]  = { "Backlog", "In Progress", "Done" };
     static const char* const kGroups[3] = { "backlog", "progress",    "done" };
@@ -422,54 +417,29 @@ int main() {
         return Style{}.with_fg(color::Black).with_bg(color::BrightGreen).with_bold();
     };
 
-    // rebuild() — clear all three ScrollViews and re-add cards that belong there.
-    // Each sv->add<Checkbox>() triggers on_mount() + focus rebuild automatically.
-    auto rebuild = [&]{
-        for (int c = 0; c < 3; ++c)
-            if (cols[c]) cols[c]->clear();
-        int cnt[3] = {};
-        for (int i = 0; i < (int)cards.size(); ++i) {
-            int c = cards[i].col;
-            if (!cols[c]) { cards[i].widget = nullptr; continue; }
-            ++cnt[c];
-            auto* cb = cols[c]->add<strata::Checkbox>(
-                strata::Constraint::fixed(1), " " + cards[i].text);
-            cb->set_style(card_style(c));
-            cb->set_focused_style(card_focused_style(c));
-            cb->set_focus_group(kGroups[c]);
-            cards[i].widget = cb;
-        }
-        for (int c = 0; c < 3; ++c)
-            if (counts[c])
-                counts[c]->set_text(std::to_string(cnt[c]) +
-                                    (cnt[c] == 1 ? " card" : " cards"));
-    };
+    strata::Input*  inp     = nullptr;
+    strata::Select* col_sel = nullptr;
 
     populate(app, {
         Col({
             Label("  Kanban  ─  m: move right  d: delete  c: clear column  q: quit")
-                .style(Style{}.with_fg(color::BrightBlack))
-                .size(fixed(1)),
+                .style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)),
             Label("").size(fixed(1)),
             Row({
-                Label(" Add to: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(9)).cross(fixed(1)),
-                Select()
-                    .items({"Backlog", "In Progress", "Done"})
-                    .group("input").size(fixed(16)).cross(fixed(1))
-                    .bind(col_sel),
+                Label(" Add to: ").style(Style{}.with_fg(color::BrightBlack))
+                    .size(fixed(9)).cross(fixed(1)),
+                Select().items({"Backlog", "In Progress", "Done"})
+                    .group("input").size(fixed(16)).cross(fixed(1)).bind(col_sel),
                 Label("  ").size(fixed(2)).cross(fixed(1)),
                 Block().inner(
                     Input()
                         .placeholder("card title, then Enter…")
-                        .group("input")
-                        .bind(inp)
-                        .submit([&](const std::string& val){
-                            if (!val.empty()) {
-                                int c = col_sel ? col_sel->selected() : 0;
-                                cards.push_back({val, c, nullptr});
-                                inp->set_value("");
-                                rebuild();
-                            }
+                        .group("input").bind(inp)
+                        .submit([&](const std::string& val) {
+                            if (val.empty()) return;
+                            int id = next_id++, c = col_sel ? col_sel->selected() : 0;
+                            cards.mutate([&](auto& v){ v.push_back({id, val, c}); });
+                            inp->set_value("");
                         })
                 ).border(Style{}.with_fg(color::White)).size(fill()),
             }).size(fixed(3)).cross_align(Layout::Align::Center),
@@ -478,58 +448,80 @@ int main() {
                 Block(" Backlog ")
                     .focused_title(Style{}.with_bg(color::Blue))
                     .border(Style{}.with_fg(color::Blue).with_bold())
-                    .inner(Col({
-                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[0]),
-                        Label("").size(fixed(1)),
-                        ScrollView({}).group("backlog").tab_index(99).bind(cols[0]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int) -> std::optional<Node> {
+                            if (card.col != 0) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text).group(kGroups[0])
+                                .style(card_style(0)).focused_style(card_focused_style(0))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
                 Block(" In Progress ")
                     .focused_title(Style{}.with_bg(color::Yellow))
                     .border(Style{}.with_fg(color::Yellow).with_bold())
-                    .inner(Col({
-                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[1]),
-                        Label("").size(fixed(1)),
-                        ScrollView({}).group("progress").tab_index(99).bind(cols[1]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int) -> std::optional<Node> {
+                            if (card.col != 1) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text).group(kGroups[1])
+                                .style(card_style(1)).focused_style(card_focused_style(1))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
                 Block(" Done ")
                     .focused_title(Style{}.with_bg(color::Green))
                     .border(Style{}.with_fg(color::Green).with_bold())
-                    .inner(Col({
-                        Label("0 cards").style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)).bind(counts[2]),
-                        Label("").size(fixed(1)),
-                        ScrollView({}).group("done").tab_index(99).bind(cols[2]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int) -> std::optional<Node> {
+                            if (card.col != 2) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text).group(kGroups[2])
+                                .style(card_style(2)).focused_style(card_focused_style(2))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
             }),
         })
     });
 
     app.on_event = [&](const Event& e) {
         if (is_char(e, 'q')) { app.quit(); return; }
-
-        int focused = -1;
-        for (int i = 0; i < (int)cards.size(); ++i)
-            if (cards[i].widget && cards[i].widget->is_focused()) { focused = i; break; }
-        if (focused < 0) return;
+        if (selected_id < 0) return;
 
         if (is_char(e, 'm')) {
-            cards[focused].col = (cards[focused].col + 1) % 3;
-            app.notify("Moved to " + std::string(kNames[cards[focused].col]),
-                       cards[focused].text, strata::AlertManager::Level::Info, 1500);
-            rebuild();
+            int to = -1;
+            cards.mutate([&](auto& v) {
+                for (auto& c : v) if (c.id == selected_id) { to = (c.col+1)%3; c.col = to; break; }
+            });
+            if (to >= 0) app.notify("Moved to " + std::string(kNames[to]), "",
+                                    strata::AlertManager::Level::Info, 1500);
         }
         if (is_char(e, 'd')) {
-            app.notify("Deleted", cards[focused].text,
-                       strata::AlertManager::Level::Warning, 1500);
-            cards.erase(cards.begin() + focused);
-            rebuild();
+            std::string txt;
+            for (const auto& c : cards.get()) if (c.id == selected_id) { txt = c.text; break; }
+            app.notify("Deleted", txt, strata::AlertManager::Level::Warning, 1500);
+            cards.mutate([&](auto& v){
+                v.erase(std::remove_if(v.begin(), v.end(),
+                    [&](const Card& c){ return c.id == selected_id; }), v.end());
+            });
+            selected_id = -1;
         }
         if (is_char(e, 'c')) {
-            int col = cards[focused].col;
-            app.notify("Cleared " + std::string(kNames[col]), "",
-                       strata::AlertManager::Level::Warning, 1500);
-            cards.erase(std::remove_if(cards.begin(), cards.end(),
-                [col](const Card& card){ return card.col == col; }), cards.end());
-            rebuild();
+            int col = -1;
+            for (const auto& c : cards.get()) if (c.id == selected_id) { col = c.col; break; }
+            if (col >= 0) {
+                app.notify("Cleared " + std::string(kNames[col]), "",
+                           strata::AlertManager::Level::Warning, 1500);
+                cards.mutate([col](auto& v){
+                    v.erase(std::remove_if(v.begin(), v.end(),
+                        [col](const Card& c){ return c.col == col; }), v.end());
+                });
+                selected_id = -1;
+            }
         }
     };
 
@@ -538,12 +530,12 @@ int main() {
 ```
 
 **Key ideas:**
-- **`rebuild()`** calls `sv->clear()` on all three columns then `sv->add<strata::Checkbox>()` per visible card. `on_mount()` and focus-list rebuild happen automatically on every add; `on_unmount()` on every clear. No manual lifecycle bookkeeping.
-- **`cards[i].widget`** stores the live `Checkbox*` so `is_focused()` can identify which card the user has selected before acting on it.
-- **Moving** (`m`) is just `cards[i].col = next; rebuild()` — the old widget is destroyed by `clear()` and a new one appears in the destination column.
-- **Clearing a column** (`c`) uses `std::remove_if` on the data vector then `rebuild()` — `sv->clear()` unmounts all children in one call rather than one-by-one.
-- **`tab_index(99)`** on each `ScrollView` pushes the container itself to the back of its focus group so Tab always lands on the first *card*, not the scroll container.
-- **Toast notifications** via `app.notify()` confirm each destructive action with a 1.5-second overlay.
+- **`make_state()`** creates a `Reactive<vector<Card>>`. One `mutate()` call fires all subscribed `ForEach` columns, which each independently rebuild their widget list.
+- **`ForEach`** takes the reactive vector and a builder lambda. Return `std::nullopt` to filter out items (each column filters by `card.col`). Return a `Node` to render it.
+- **`selected_id`** tracks which card last gained focus via `.focused(...)` callback on each `Checkbox`. This replaces the old `Card::widget` pointer — no raw widget pointers in the data model.
+- **No `rebuild()` function**: adding, moving, and deleting cards is just `cards.mutate(...)` — the UI updates automatically.
+- **`card.id`** is a stable integer identity (independent of vector index) so captures in `.focused()` remain valid after mutations reorder the vector.
+- **Toast notifications** via `app.notify()` confirm each action.
 
 ### 2e. Dashboard with Async Updates
 
@@ -1057,7 +1049,8 @@ The shadow row uses `▀` (half-block) characters — top half painted in the bu
 Checkbox("label")
     .checked(bool)                       // initial state
     .size(Constraint)
-    .change(std::function<void(bool)>)   // called with new state
+    .change(std::function<void(bool)>)   // called with new checked state
+    .focused(std::function<void()>)      // called when this widget gains focus
     .tab_index(int)
     .group(std::string)
     .bind(strata::Checkbox*& ref)
@@ -1143,6 +1136,55 @@ ScrollView({ child, child, ... })
     .group(std::string)
     .bind(strata::ScrollView*& ref)
 ```
+
+### `ForEach` — Reactive list renderer
+
+Binds a `Reactive<std::vector<T>>` to a builder lambda. Whenever the state changes, the container clears and rebuilds its children list automatically — no manual refresh needed.
+
+```cpp
+ForEach(reactive_vec,
+    [](const T& item, int index) -> std::optional<Node> {
+        // Return a Node to render this item, or std::nullopt to skip it.
+        return Label(item.name).size(fixed(1));
+    })
+    .size(Constraint)   // default: fill()
+    .cross(Constraint)
+```
+
+The builder's `int index` is the item's position in the full vector (not filtered). Returning `std::nullopt` acts as a filter — useful for per-column views into a shared list:
+
+```cpp
+// Only show cards that belong to column 0
+ForEach(cards, [](const Card& c, int) -> std::optional<Node> {
+    if (c.col != 0) return std::nullopt;
+    return Checkbox(c.text).size(fixed(1));
+})
+```
+
+> **Lifetime rule**: the `Reactive<T>` object must outlive the `ForEach` widget. In practice this means declaring it in the same scope as `App` (typically `main`).
+
+### Reactive state (`make_state` / `Reactive<T>`)
+
+```cpp
+// Declare observable state
+auto count = make_state(0);
+auto items = make_state(std::vector<std::string>{});
+
+// Read
+count.get()         // const T&
+*count              // same via operator*
+count->size()       // operator-> for member access
+
+// Write — fires all listeners
+count.set(42);
+items.mutate([](auto& v){ v.push_back("hello"); });
+
+// Subscribe / unsubscribe
+int id = count.on_change([&]{ lbl->set_text(std::to_string(*count)); });
+count.off(id);   // unsubscribe by id
+```
+
+`ForEach` subscribes and unsubscribes automatically via `on_mount` / `on_unmount`. For manual use (e.g. updating a label), subscribe in a `set_timeout(0, ...)` after populate or store the id to unsubscribe later.
 
 ### `ModalDesc` — Modal dialog descriptor
 
@@ -1252,7 +1294,8 @@ Checkbox(std::string label = "", bool checked = false)
 
 | Public member | Type | Description |
 |---|---|---|
-| `on_change` | `function<void(bool)>` | Called with new state after toggle |
+| `on_change` | `function<void(bool)>` | Called with new checked state after toggle |
+| `on_focused` | `function<void()>` | Called when this widget gains keyboard focus |
 
 | Method | Description |
 |---|---|
@@ -1644,6 +1687,129 @@ Canvas child_canvas = canvas.sub_canvas(absolute_rect);
 ---
 
 ## 8. Patterns & Recipes
+
+### Reactive state with `ForEach`
+
+Declare state with `make_state`, render it with `ForEach`, mutate it anywhere — the UI rebuilds automatically:
+
+```cpp
+struct Task { int id; std::string text; bool done = false; };
+auto tasks = make_state(std::vector<Task>{});
+int  next_id = 0;
+strata::Input* inp = nullptr;
+
+populate(app, {
+    Col({
+        Input().bind(inp)
+            .submit([&](const std::string& val) {
+                if (val.empty()) return;
+                tasks.mutate([&](auto& v){ v.push_back({next_id++, val}); });
+                inp->set_value("");
+            }).size(fixed(1)),
+        // Rebuilds whenever tasks changes
+        ForEach(tasks, [](const Task& t, int) -> std::optional<Node> {
+            return Checkbox(t.text).checked(t.done).size(fixed(1));
+        }),
+    })
+});
+```
+
+**Filtering** — each `ForEach` can show a different view of the same list:
+
+```cpp
+// Active tasks only
+ForEach(tasks, [](const Task& t, int) -> std::optional<Node> {
+    if (t.done) return std::nullopt;
+    return Checkbox(t.text).size(fixed(1));
+})
+```
+
+**Triggering side-effects** — subscribe manually to update labels or other non-`ForEach` widgets:
+
+```cpp
+strata::Label* count_lbl = nullptr;
+// ...bind(count_lbl)...
+
+// After populate():
+tasks.on_change([&]{
+    int n = (int)tasks->size();
+    count_lbl->set_text(std::to_string(n) + " tasks");
+});
+```
+
+### Custom reusable Nodes (React-style components)
+
+Any type with `build()`, `constraint()`, and `cross_constraint()` is a valid `Node`. This lets you factor repeated widget subtrees into reusable components — exactly like React functional components or Flutter widgets.
+
+#### Functional style (simplest)
+
+A plain function returning a `Node`:
+
+```cpp
+// Reusable component — just a function
+Node metric_row(const std::string& label,
+                strata::ProgressBar*& bar,
+                strata::Label*& status) {
+    return Row({
+        Label(label).style(Style{}.with_fg(color::BrightWhite).with_bold()).size(fixed(8)),
+        ProgressBar().size(fill()).bind(bar),
+        Label(" OK ").style(Style{}.with_fg(color::BrightGreen)).size(fixed(6)).bind(status),
+    }).size(fixed(1));
+}
+
+// Usage — exactly like a built-in descriptor
+strata::ProgressBar* cpu_bar = nullptr;  strata::Label* cpu_st = nullptr;
+strata::ProgressBar* mem_bar = nullptr;  strata::Label* mem_st = nullptr;
+
+populate(app, {
+    Col({
+        metric_row("CPU    ", cpu_bar, cpu_st),
+        metric_row("Memory ", mem_bar, mem_st),
+    })
+});
+```
+
+#### Class style (builder-pattern, nestable anywhere)
+
+A struct that satisfies the `Node` concept — it can be used inside `Col{}`, `Row{}`, `.inner()`, or `ForEach`:
+
+```cpp
+struct StatusCard {
+    std::string           title_;
+    strata::ProgressBar** bar_    = nullptr;
+    strata::Label**       status_ = nullptr;
+    strata::Constraint    size_   = strata::Constraint::fill();
+
+    StatusCard(std::string title) : title_(std::move(title)) {}
+    StatusCard& bar(strata::ProgressBar*& b)  { bar_    = &b; return *this; }
+    StatusCard& status(strata::Label*& s)     { status_ = &s; return *this; }
+    StatusCard& size(strata::Constraint c)    { size_   = c;  return *this; }
+
+    std::unique_ptr<strata::Widget> build() const {
+        // Compose from existing descriptors — no ncurses knowledge needed
+        return Row({
+            Label(title_).style(Style{}.with_bold()).size(fixed(8)),
+            ProgressBar().size(fill()).bind(*bar_),
+            Label(" OK ").size(fixed(6)).bind(*status_),
+        }).size(fixed(1)).build();
+    }
+    strata::Constraint constraint()       const { return size_; }
+    strata::Constraint cross_constraint() const { return strata::Constraint::fill(); }
+};
+
+// Usage — nests inside Col/Row just like Label or Button
+populate(app, {
+    Block(" System Monitor ").inner(
+        Col({
+            StatusCard("CPU    ").bar(cpu_bar).status(cpu_st),
+            StatusCard("Memory ").bar(mem_bar).status(mem_st),
+            StatusCard("Network").bar(net_bar).status(net_st),
+        })
+    )
+});
+```
+
+The class's `build()` can delegate to any other descriptor's `build()`, so you compose reusable UI from existing pieces without any ncurses code.
 
 ### Dynamic widget add/remove
 

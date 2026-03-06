@@ -16,6 +16,7 @@ class Checkbox : public Widget {
 
 public:
     std::function<void(bool)> on_change;
+    std::function<void()>     on_focused;  // fired when this widget gains keyboard focus
 
     explicit Checkbox(std::string label = "", bool checked = false);
 
@@ -29,6 +30,9 @@ public:
     bool is_focusable() const override { return true; }
     void render(Canvas& canvas) override;
     bool handle_event(const Event& e) override;
+
+protected:
+    void on_focus() override { Widget::on_focus(); if (on_focused) on_focused(); }
 };
 
 } // namespace strata

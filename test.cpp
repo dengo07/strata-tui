@@ -1,24 +1,20 @@
 #include <Strata/ui.hpp>
 using namespace strata::ui;
-#include <vector>
 #include <string>
 #include <algorithm>
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Kanban Board — dynamic widget showcase
+// Reactive Kanban — Flutter/SwiftUI-style reactive showcase
 //
-// Demonstrates Container::add() / remove() / clear() at runtime:
-//   • Adding a card  → sv->add<Checkbox>() mounts the widget and rebuilds focus
-//   • Moving a card  → clear() + re-add to destination column
-//   • Deleting       → erase from data + rebuild
-//   • Clearing a col → sv->clear() unmounts all children at once
+// State is declared once as Reactive<vector<Card>>.
+// Mutate it anywhere and the UI updates automatically — no rebuild() needed.
 //
 // Controls:
 //   Tab / Shift-Tab  — jump between columns and the input row
 //   ↑ / ↓           — navigate cards within a column
-//   m               — move focused card to the next column (wraps)
-//   d               — delete focused card
-//   c               — clear the entire column of the focused card
+//   m               — move the focused card to the next column (wraps)
+//   d               — delete the focused card
+//   c               — clear all cards in the focused card's column
 //   q               — quit
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -26,22 +22,20 @@ int main() {
     App app;
 
     struct Card {
+        int         id;
         std::string text;
-        int         col    = 0;   // 0=Backlog  1=In Progress  2=Done
-        strata::Checkbox* widget = nullptr;
+        int         col = 0;   // 0=Backlog  1=In Progress  2=Done
     };
-    std::vector<Card> cards;
 
-    // One ScrollView and one count label per column — populated via bind()
-    strata::ScrollView* cols[3]   = {};
-    strata::Label*      counts[3] = {};
-    strata::Input*      inp       = nullptr;
-    strata::Select*     col_sel   = nullptr;
+    // ── Reactive state ────────────────────────────────────────────────────────
+    auto cards = make_state(std::vector<Card>{});
+    int  next_id     = 0;
+    int  selected_id = -1;   // id of last focused card (updated by on_focused)
 
+    // ── Constants ─────────────────────────────────────────────────────────────
     static const char* const kNames[3]  = { "Backlog", "In Progress", "Done" };
     static const char* const kGroups[3] = { "backlog", "progress",    "done" };
 
-    // Per-column card styles
     auto card_style = [](int c) -> Style {
         if (c == 0) return Style{}.with_fg(color::BrightBlue);
         if (c == 1) return Style{}.with_fg(color::BrightYellow);
@@ -53,145 +47,146 @@ int main() {
         return Style{}.with_fg(color::Black).with_bg(color::BrightGreen).with_bold();
     };
 
-    // rebuild() — clear all three ScrollViews and re-add cards that belong there.
-    // Each call to sv->add<Checkbox>() triggers on_mount() + focus rebuild.
-    auto rebuild = [&]{
-        for (int c = 0; c < 3; ++c) {
-            if (cols[c]) cols[c]->clear();   // on_unmount() on every child
-        }
-        int cnt[3] = {};
-        for (int i = 0; i < (int)cards.size(); ++i) {
-            int c = cards[i].col;
-            if (!cols[c]) { cards[i].widget = nullptr; continue; }
-            ++cnt[c];
-            auto* cb = cols[c]->add<strata::Checkbox>(   // on_mount() called here
-                strata::Constraint::fixed(1), " " + cards[i].text);
-            cb->set_style(card_style(c));
-            cb->set_focused_style(card_focused_style(c));
-            cb->set_focus_group(kGroups[c]);
-            cards[i].widget = cb;
-        }
-        for (int c = 0; c < 3; ++c)
-            if (counts[c])
-                counts[c]->set_text(std::to_string(cnt[c]) +
-                                    (cnt[c] == 1 ? " card" : " cards"));
-    };
+    // ── Widgets that need runtime access ─────────────────────────────────────
+    strata::Input*  inp     = nullptr;
+    strata::Select* col_sel = nullptr;
 
+    // ── UI declaration ────────────────────────────────────────────────────────
     populate(app, {
         Col({
-            // ── Title bar ────────────────────────────────────────────────────
+            // Title bar
             Label("  Kanban  ─  m: move right  d: delete  c: clear column  q: quit")
                 .style(Style{}.with_fg(color::BrightBlack))
                 .size(fixed(1)),
             Label("").size(fixed(1)),
 
-            // ── Add row ──────────────────────────────────────────────────────
+            // Add-card row
             Row({
-                Label(" Add to: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(9)).cross(fixed(1)),
+                Label(" Add to: ").style(Style{}.with_fg(color::BrightBlack))
+                    .size(fixed(9)).cross(fixed(1)),
                 Select()
                     .items({"Backlog", "In Progress", "Done"})
                     .group("input")
-                    .size(fixed(16))
-                    .cross(fixed(1))
+                    .size(fixed(16)).cross(fixed(1))
                     .bind(col_sel),
                 Label("  ").size(fixed(2)).cross(fixed(1)),
                 Block().inner(
                     Input()
-                    .placeholder("card title, then Enter…")
-                    .group("input")
-                    .bind(inp)
-                    .submit([&](const std::string& val){
-                        if (!val.empty()) {
-                            int c = col_sel ? col_sel->selected() : 0;
-                            cards.push_back({val, c, nullptr});
+                        .placeholder("card title, then Enter…")
+                        .group("input")
+                        .bind(inp)
+                        .submit([&](const std::string& val) {
+                            if (val.empty()) return;
+                            int c  = col_sel ? col_sel->selected() : 0;
+                            int id = next_id++;
+                            // One mutate() → all three ForEach columns rebuild
+                            cards.mutate([&](auto& v){ v.push_back({id, val, c}); });
                             inp->set_value("");
-                            rebuild();
-                        }
-                    })
+                        })
                 ).border(Style{}.with_fg(color::White)).size(fill()),
             }).size(fixed(3)).cross_align(Layout::Align::Center),
             Label("").size(fixed(1)),
 
-            // ── Three columns ────────────────────────────────────────────────
+            // Three columns, each driven by a ForEach
             Row({
                 Block(" Backlog ")
                     .focused_title(Style{}.with_bg(color::Blue))
                     .border(Style{}.with_fg(color::Blue).with_bold())
-                    .inner(Col({
-                        Label("0 cards")
-                            .style(Style{}.with_fg(color::BrightBlack))
-                            .size(fixed(1))
-                            .bind(counts[0]),
-                        Label("").size(fixed(1)),
-                        // ScrollView starts empty; cards are added via rebuild().
-                        // tab_index(99) keeps the ScrollView after its cards in
-                        // the focus order so Tab lands on a card, not the container.
-                        ScrollView({}).group("backlog").tab_index(99).bind(cols[0]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int /*i*/) -> std::optional<Node> {
+                            if (card.col != 0) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text)
+                                .group(kGroups[0])
+                                .style(card_style(0))
+                                .focused_style(card_focused_style(0))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
 
                 Block(" In Progress ")
                     .focused_title(Style{}.with_bg(color::Yellow))
                     .border(Style{}.with_fg(color::Yellow).with_bold())
-                    .inner(Col({
-                        Label("0 cards")
-                            .style(Style{}.with_fg(color::BrightBlack))
-                            .size(fixed(1))
-                            .bind(counts[1]),
-                        Label("").size(fixed(1)),
-                        ScrollView({}).group("progress").tab_index(99).bind(cols[1]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int /*i*/) -> std::optional<Node> {
+                            if (card.col != 1) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text)
+                                .group(kGroups[1])
+                                .style(card_style(1))
+                                .focused_style(card_focused_style(1))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
 
                 Block(" Done ")
                     .focused_title(Style{}.with_bg(color::Green))
                     .border(Style{}.with_fg(color::Green).with_bold())
-                    .inner(Col({
-                        Label("0 cards")
-                            .style(Style{}.with_fg(color::BrightBlack))
-                            .size(fixed(1))
-                            .bind(counts[2]),
-                        Label("").size(fixed(1)),
-                        ScrollView({}).group("done").tab_index(99).bind(cols[2]),
-                    })),
+                    .inner(
+                        ForEach(cards, [&](const Card& card, int /*i*/) -> std::optional<Node> {
+                            if (card.col != 2) return std::nullopt;
+                            int id = card.id;
+                            return Checkbox(card.text)
+                                .group(kGroups[2])
+                                .style(card_style(2))
+                                .focused_style(card_focused_style(2))
+                                .focused([&selected_id, id]{ selected_id = id; })
+                                .size(fixed(1));
+                        })
+                    ),
             }),
         })
     });
 
+    // ── Global key handlers ───────────────────────────────────────────────────
     app.on_event = [&](const Event& e) {
         if (is_char(e, 'q')) { app.quit(); return; }
+        if (selected_id < 0) return;
 
-        // Find which card is currently focused
-        int focused = -1;
-        for (int i = 0; i < (int)cards.size(); ++i)
-            if (cards[i].widget && cards[i].widget->is_focused()) { focused = i; break; }
-
-        if (focused < 0) return;
-
-        // Move focused card to the next column
         if (is_char(e, 'm')) {
-            int from = cards[focused].col;
-            int to   = (from + 1) % 3;
-            cards[focused].col = to;
-            app.notify("Moved to " + std::string(kNames[to]), cards[focused].text,
-                       strata::AlertManager::Level::Info, 1500);
-            rebuild();
+            // Move focused card to the next column
+            int to = -1;
+            cards.mutate([&](auto& v) {
+                for (auto& c : v) {
+                    if (c.id == selected_id) {
+                        to = (c.col + 1) % 3;
+                        c.col = to;
+                        break;
+                    }
+                }
+            });
+            if (to >= 0)
+                app.notify("Moved to " + std::string(kNames[to]), "",
+                           strata::AlertManager::Level::Info, 1500);
         }
 
-        // Delete focused card
         if (is_char(e, 'd')) {
-            app.notify("Deleted", cards[focused].text,
-                       strata::AlertManager::Level::Warning, 1500);
-            cards.erase(cards.begin() + focused);
-            rebuild();
+            std::string txt;
+            for (const auto& c : cards.get())
+                if (c.id == selected_id) { txt = c.text; break; }
+            app.notify("Deleted", txt, strata::AlertManager::Level::Warning, 1500);
+            cards.mutate([&](auto& v) {
+                v.erase(std::remove_if(v.begin(), v.end(),
+                    [&](const Card& c){ return c.id == selected_id; }), v.end());
+            });
+            selected_id = -1;
         }
 
-        // Clear the entire column of the focused card
         if (is_char(e, 'c')) {
-            int col = cards[focused].col;
-            app.notify("Cleared " + std::string(kNames[col]), "",
-                       strata::AlertManager::Level::Warning, 1500);
-            cards.erase(std::remove_if(cards.begin(), cards.end(),
-                [col](const Card& card){ return card.col == col; }), cards.end());
-            rebuild();
+            int col = -1;
+            for (const auto& c : cards.get())
+                if (c.id == selected_id) { col = c.col; break; }
+            if (col >= 0) {
+                app.notify("Cleared " + std::string(kNames[col]), "",
+                           strata::AlertManager::Level::Warning, 1500);
+                cards.mutate([col](auto& v) {
+                    v.erase(std::remove_if(v.begin(), v.end(),
+                        [col](const Card& c){ return c.col == col; }), v.end());
+                });
+                selected_id = -1;
+            }
         }
     };
 

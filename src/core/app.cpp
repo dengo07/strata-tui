@@ -320,6 +320,11 @@ void App::run() {
     Widget::s_on_subtree_removed_ = [this](Widget* w) {
         unmount_all(w);
     };
+    // Mount only — used by ReactiveContainer::refresh() to batch-mount new
+    // children before doing a single focus rebuild at the end.
+    Widget::s_on_mount_subtree_ = [this](Widget* w) {
+        mount_all(w);
+    };
     Widget::s_on_focus_rebuild_ = [this]() {
         focus_->rebuild(root_.get());
     };
@@ -360,6 +365,7 @@ void App::run() {
 
     Widget::s_on_subtree_added_   = nullptr;
     Widget::s_on_subtree_removed_ = nullptr;
+    Widget::s_on_mount_subtree_   = nullptr;
     Widget::s_on_focus_rebuild_   = nullptr;
 }
 

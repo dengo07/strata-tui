@@ -12,6 +12,7 @@ class FocusManager;
 class Block;
 class ScrollView;
 class Modal;
+class ReactiveContainer;
 
 class Widget {
     friend class App;
@@ -20,6 +21,7 @@ class Widget {
     friend class Block;
     friend class ScrollView;
     friend class Modal;
+    friend class ReactiveContainer;
 
 protected:
     Widget* parent_  = nullptr;
@@ -34,6 +36,7 @@ protected:
     // Set by App during run() so Container/ScrollView can trigger lifecycle hooks dynamically.
     static std::function<void(Widget*)> s_on_subtree_added_;    // mount subtree + rebuild focus
     static std::function<void(Widget*)> s_on_subtree_removed_;  // unmount subtree ONLY (no rebuild)
+    static std::function<void(Widget*)> s_on_mount_subtree_;    // mount subtree ONLY (no rebuild)
     static std::function<void()>        s_on_focus_rebuild_;    // rebuild focus (called after erase)
 
     // Lifecycle hooks — override in subclasses as needed

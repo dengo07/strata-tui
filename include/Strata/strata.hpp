@@ -23,6 +23,9 @@
 #include "layout/constraint.hpp"
 #include "layout/layout.hpp"
 
+// Reactive state
+#include "core/reactive.hpp"
+
 // Widgets
 #include "widgets/label.hpp"
 #include "widgets/block.hpp"
@@ -37,3 +40,4 @@
 #include "widgets/switch.hpp"
 #include "widgets/spinner.hpp"
 #include "widgets/modal.hpp"
+#include "widgets/reactive_container.hpp"

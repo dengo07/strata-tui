@@ -21,6 +21,11 @@
 namespace strata::ui {
 
 // ── Re-exports ────────────────────────────────────────────────────────────────
+// Reactive state
+template<typename T> using Reactive = strata::Reactive<T>;
+template<typename T>
+strata::Reactive<T> make_state(T init = T{}) { return strata::make_state<T>(std::move(init)); }
+
 using strata::App;
 using strata::Style;
 using strata::Constraint;
@@ -277,6 +282,7 @@ class Checkbox {
     strata::Style                focused_style_;
     bool                         has_style_          = false;
     bool                         has_focused_style_  = false;
+    std::function<void()>        on_focused_;
     mutable strata::Checkbox**   ref_           = nullptr;
 public:
     explicit Checkbox(std::string label) : label_(std::move(label)) {}
@@ -285,6 +291,7 @@ public:
     Checkbox& size(strata::Constraint c)           { size_      = c;            return *this; }
     Checkbox& cross(strata::Constraint c)          { cross_     = c;            return *this; }
     Checkbox& change(std::function<void(bool)> f)  { on_change_ = std::move(f); return *this; }
+    Checkbox& focused(std::function<void()> f)     { on_focused_ = std::move(f); return *this; }
     Checkbox& tab_index(int i)                     { tab_index_ = i;            return *this; }
     Checkbox& group(std::string g)                 { focus_group_ = std::move(g); return *this; }
     Checkbox& bind(strata::Checkbox*& ref)         { ref_       = &ref;         return *this; }
@@ -293,7 +300,8 @@ public:
 
     std::unique_ptr<strata::Widget> build() const {
         auto w = std::make_unique<strata::Checkbox>(label_, checked_);
-        if (on_change_) w->on_change = on_change_;
+        if (on_change_)  w->on_change  = on_change_;
+        if (on_focused_) w->on_focused = on_focused_;
         w->tab_index = tab_index_;
         if (!focus_group_.empty()) w->set_focus_group(focus_group_);
         if (has_style_)         w->set_style(style_);
@@ -576,5 +584,67 @@ public:
         return m;
     }
 };
+
+// ── ForEach ───────────────────────────────────────────────────────────────────
+// Reactive list renderer. Binds a Reactive<std::vector<T>> to a builder lambda;
+// whenever the state changes, the container automatically clears and rebuilds.
+//
+// Builder signature: std::optional<Node>(const T& item, int index)
+//   Return std::nullopt to skip an item (e.g. to filter by column).
+//
+// Usage:
+//   auto items = make_state(std::vector<std::string>{});
+//   ForEach(items, [](const std::string& s, int i) -> std::optional<Node> {
+//       return Label(s).size(fixed(1));
+//   })
+//
+template<typename T>
+class ForEach {
+    strata::Reactive<std::vector<T>>&                          state_;
+    std::function<std::optional<Node>(const T&, int)>          builder_;
+    strata::Constraint                                         size_  = strata::Constraint::fill();
+    strata::Constraint                                         cross_ = strata::Constraint::fill();
+public:
+    // Accept any callable — lambdas, function pointers, std::function, etc.
+    template<typename F>
+    ForEach(strata::Reactive<std::vector<T>>& state, F&& builder)
+        : state_(state), builder_(std::forward<F>(builder)) {}
+
+    ForEach& size(strata::Constraint c)  { size_  = c; return *this; }
+    ForEach& cross(strata::Constraint c) { cross_ = c; return *this; }
+
+    std::unique_ptr<strata::Widget> build() const {
+        auto rc = std::make_unique<strata::ReactiveContainer>();
+        strata::ReactiveContainer* raw = rc.get();
+
+        // Capture state by reference (state_ outlives the widget — it lives in
+        // the caller's scope, typically main()) and builder by value.
+        rc->set_rebuild([raw, &state = state_, builder = builder_]() {
+            const auto& items = state.get();
+            for (int i = 0; i < (int)items.size(); ++i) {
+                auto node_opt = builder(items[i], i);
+                if (node_opt)
+                    raw->add(node_opt->build(), node_opt->constraint());
+            }
+        });
+
+        rc->set_subscribe([&state = state_](std::function<void()> cb) -> int {
+            return state.on_change(std::move(cb));
+        });
+
+        rc->set_unsubscribe([&state = state_](int id) {
+            state.off(id);
+        });
+
+        return rc;
+    }
+
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
+};
+
+// Deduction guide: deduce T from Reactive<vector<T>>, ignoring the callable type.
+template<typename T, typename F>
+ForEach(strata::Reactive<std::vector<T>>&, F&&) -> ForEach<T>;
 
 } // namespace strata::ui
