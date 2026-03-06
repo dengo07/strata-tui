@@ -12,7 +12,33 @@ Widget* Container::add(std::unique_ptr<Widget> widget, Constraint main, Constrai
     constraints_.push_back(main);
     cross_constraints_.push_back(cross);
     mark_dirty();
+    // If this container is already mounted (app is running), mount the new subtree
+    // and rebuild the focus list so the new widget participates in Tab cycling.
+    if (mounted_ && s_on_subtree_added_) s_on_subtree_added_(raw);
     return raw;
+}
+
+void Container::remove(Widget* w) {
+    for (size_t i = 0; i < children_.size(); ++i) {
+        if (children_[i].get() == w) {
+            if (mounted_ && s_on_subtree_removed_) s_on_subtree_removed_(children_[i].get());
+            children_.erase(children_.begin() + i);
+            constraints_.erase(constraints_.begin() + i);
+            cross_constraints_.erase(cross_constraints_.begin() + i);
+            mark_dirty();
+            return;
+        }
+    }
+}
+
+void Container::clear() {
+    if (mounted_ && s_on_subtree_removed_) {
+        for (auto& child : children_) s_on_subtree_removed_(child.get());
+    }
+    children_.clear();
+    constraints_.clear();
+    cross_constraints_.clear();
+    mark_dirty();
 }
 
 // Resolve a cross-axis constraint to an absolute size given the full cross slot.

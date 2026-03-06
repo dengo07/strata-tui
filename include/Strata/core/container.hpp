@@ -46,16 +46,15 @@ public:
     // Cross-axis alignment applied when a child's cross size is less than the full slot.
     Container& set_cross_align(Layout::Align a) { cross_align_ = a; return *this; }
 
+    // Remove a widget previously added via add(). Calls on_unmount() if mounted.
+    void remove(Widget* w);
+
     void render(Canvas& canvas) override;
     bool handle_event(const Event& e) override;
     void for_each_child(const std::function<void(Widget&)>& visitor) override;
 
     const std::vector<std::unique_ptr<Widget>>& children() const { return children_; }
-    void clear() {
-        children_.clear();
-        cross_constraints_.clear();
-        mark_dirty();
-    }
+    void clear();
 };
 
 } // namespace strata

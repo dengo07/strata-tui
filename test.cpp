@@ -84,7 +84,7 @@ int main() {
         app.run_async(
             // Background thread — reads /proc files; must NOT touch widgets
             [vals, state]{
-                // --- CPU: /proc/stat first line ---
+                // CPU: /proc/stat first line
                 {
                     std::ifstream f("/proc/stat");
                     std::string line;
@@ -102,8 +102,7 @@ int main() {
                     state->cpu_total = total;
                     state->cpu_idle  = idle_all;
                 }
-
-                // --- Memory: /proc/meminfo ---
+                // Memory: /proc/meminfo
                 {
                     std::ifstream f("/proc/meminfo");
                     std::string line;
@@ -119,8 +118,7 @@ int main() {
                         ? std::min(1.0f, (float)(mem_total - mem_avail) / mem_total)
                         : 0.0f;
                 }
-
-                // --- Network: /proc/net/dev, cap at 10 MB/s ---
+                // Network: /proc/net/dev, summed across interfaces, capped at 10 MB/s
                 {
                     std::ifstream f("/proc/net/dev");
                     std::string line;
@@ -144,7 +142,6 @@ int main() {
                     }
                     state->net_bytes = bytes;
                 }
-
                 vals->info = "  CPU " + std::to_string((int)(vals->cpu * 100)) + "%"
                            + "  Mem " + std::to_string((int)(vals->mem * 100)) + "%"
                            + "  Net " + std::to_string((int)(vals->net * 10)) + " MB/s";

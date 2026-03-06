@@ -40,6 +40,7 @@ void App::quit() {
 // ---------------------------------------------------------------------------
 
 void App::mount_all(Widget* w) {
+    w->mounted_ = true;
     w->on_mount();
     w->for_each_child([this](Widget& child) {
         mount_all(&child);
@@ -51,6 +52,7 @@ void App::unmount_all(Widget* w) {
         unmount_all(&child);
     });
     w->on_unmount();
+    w->mounted_ = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +309,17 @@ void App::drain_pending() {
 void App::run() {
     backend_->init();
 
+    // Register dynamic-add/remove callbacks so Container can trigger
+    // mount lifecycle and focus rebuild when widgets are added/removed at runtime.
+    Widget::s_on_subtree_added_ = [this](Widget* w) {
+        mount_all(w);
+        focus_->rebuild(root_.get());
+    };
+    Widget::s_on_subtree_removed_ = [this](Widget* w) {
+        unmount_all(w);
+        focus_->rebuild(root_.get());
+    };
+
     mount_all(root_.get());
     focus_->rebuild(root_.get());
 
@@ -340,6 +353,9 @@ void App::run() {
 
     unmount_all(root_.get());
     backend_->shutdown();
+
+    Widget::s_on_subtree_added_   = nullptr;
+    Widget::s_on_subtree_removed_ = nullptr;
 }
 
 } // namespace strata

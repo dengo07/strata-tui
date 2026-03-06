@@ -82,6 +82,8 @@ That's it. `populate()` builds the widget tree; `app.run()` starts the event loo
 
 The application owns a vertical root `Container`. Everything you add goes into that root. Containers can nest arbitrarily — `Col`/`Row` are just vertical/horizontal containers.
 
+Widgets can be added, removed, or cleared at any time — including while `app.run()` is executing. Lifecycle hooks and the focus list update automatically.
+
 ```
 App
 └── Container (root, vertical)
@@ -537,10 +539,12 @@ app.set_interval(5000, [&, result]{
     app.run_async(
         // Background thread — must NOT touch widgets
         [result]{ *result = scan_directory("/some/path"); },
-        // Main thread — safe to call any widget setter
+        // Main thread — safe to call any widget setter or add/remove widgets
         [&, result]{
+            sv->clear();  // unmounts all previous children
             for (auto& s : *result)
                 sv->add<strata::Label>(Constraint::fixed(1), s, Style{});
+            // on_mount() and focus rebuild happen automatically for each add()
         }
     );
 });
@@ -772,7 +776,9 @@ ScrollView{
  .size(fill(1))
 ```
 
-Imperative: `sv->add<W>(Constraint, args...)`, `sv->scroll_to(int y)`, `sv->scroll_by(int delta)`, `sv->scroll_y()`.
+Imperative: `sv->add<W>(Constraint, args...)`, `sv->remove(Widget*)`, `sv->clear()`, `sv->scroll_to(int y)`, `sv->scroll_by(int delta)`, `sv->scroll_y()`.
+
+Calling `add()`, `remove()`, or `clear()` while the app is running automatically calls `on_mount()` / `on_unmount()` on the affected widgets and rebuilds the focus list.
 
 ---
 

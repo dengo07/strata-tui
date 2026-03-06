@@ -74,7 +74,8 @@ src/                     — Private implementations
 App::run()
   │
   ├─ backend_->init()              NcursesBackend: initscr(), colors, mouse
-  ├─ mount_all(root_)              DFS: call on_mount() on every widget
+  ├─ register s_on_subtree_*       static callbacks for dynamic add/remove
+  ├─ mount_all(root_)              DFS: sets mounted_=true, calls on_mount()
   ├─ focus_->rebuild(root_)        DFS collect focusable → stable_sort → focus[0]
   │
   └─ loop (16 ms poll → ~60 fps):
@@ -415,19 +416,45 @@ The `▀` character's **top half** displays as `fg` (= button background color) 
 ```
 App::run()
   mount_all(root_):
-      DFS (pre-order): on_mount() called on every widget
+      DFS (pre-order): sets mounted_ = true, calls on_mount() on every widget
 
   ... event loop ...
 
   unmount_all(root_):
-      DFS (post-order): on_unmount() called on every widget
+      DFS (post-order): calls on_unmount() on every widget, sets mounted_ = false
 ```
 
-**`on_mount()`** — called once when the widget tree is first set up. Default implementation is empty. Override to set up timers, subscriptions, or one-time initialization.
+**`on_mount()`** — called once when the widget is attached to a running tree. Default implementation is empty. Override to set up timers, subscriptions, or one-time initialization.
 
-**`on_unmount()`** — called once when the app exits. Default implementation is empty.
+**`on_unmount()`** — called once when the widget is detached or the app exits. Default implementation is empty.
 
 **`on_focus()` / `on_blur()`** — called by `FocusManager` when a widget gains or loses keyboard focus. Default implementation calls `mark_dirty()` to trigger a visual update (e.g., to draw focus highlight). Override to perform additional actions.
+
+### Dynamic Add / Remove at Runtime
+
+**Source:** `src/core/container.cpp`, `src/core/app.cpp`
+
+Widgets can be added to or removed from any `Container` while the app is running. The mechanism uses two static callbacks registered by `App::run()`:
+
+```cpp
+// Set at the start of App::run():
+Widget::s_on_subtree_added_   = [this](Widget* w) {
+    mount_all(w);                  // DFS on_mount() + sets mounted_ = true
+    focus_->rebuild(root_.get()); // rebuild Tab order
+};
+Widget::s_on_subtree_removed_ = [this](Widget* w) {
+    unmount_all(w);                // DFS on_unmount() + sets mounted_ = false
+    focus_->rebuild(root_.get());
+};
+// Cleared at the end of App::run() to prevent dangling captures.
+```
+
+`Container::add()` checks `mounted_` on `this` after inserting the new child. If `true` (the container is part of a running tree), it fires `s_on_subtree_added_` on the new widget. `Container::remove()` fires `s_on_subtree_removed_` before erasing. `Container::clear()` fires `s_on_subtree_removed_` for every existing child before clearing.
+
+The `mounted_` flag (`protected bool mounted_ = false` in `Widget`) tracks whether a widget has been mounted. It is set to `true` by `mount_all()` and `false` by `unmount_all()`, so the check in `Container::add()` is always accurate regardless of nesting depth.
+
+**Why static callbacks instead of a direct `App*` pointer?**
+`Container` is in the public API (`include/Strata/core/container.hpp`) and must not depend on `App` (which includes private headers). Static function pointers on `Widget` break the dependency without circular includes. Only `App` ever writes these statics, and only one `App` instance runs at a time.
 
 ### Modal Lifecycle Ordering
 
@@ -461,7 +488,7 @@ void Block::for_each_child(const std::function<void(Widget&)>& v) {
 }
 ```
 
-`App::mount_all`, `App::unmount_all`, `FocusManager::collect`, and `App::find_focusable_at` all use this pattern.
+`App::mount_all`, `App::unmount_all`, `FocusManager::collect`, and `App::find_focusable_at` all use this pattern. `Container::remove()` and `Container::clear()` also walk children via direct iteration before erasing, firing `s_on_subtree_removed_` per child.
 
 ### `friend class` Declarations
 

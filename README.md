@@ -606,7 +606,7 @@ App
 - `App` owns the root `Container` and the `Backend`.
 - Widgets are added to a `Container` (or `App`) via `add<W>(...)` or `populate()`.
 - Each widget knows its `parent_`; `mark_dirty()` propagates up to the root, signalling `App::render_frame()` to redraw.
-- **Lifecycle**: `on_mount()` fires after the widget is attached to the tree (before the first render). `on_unmount()` fires before removal.
+- **Lifecycle**: `on_mount()` fires after the widget is attached to the tree (before the first render). `on_unmount()` fires before removal. Both also fire for widgets added or removed dynamically at runtime.
 
 ### 3b. Retained-Mode Rendering
 
@@ -1266,9 +1266,11 @@ ScrollView(Layout layout = Layout(Layout::Direction::Vertical))
 
 | Method | Description |
 |---|---|
-| `add(unique_ptr<Widget>, Constraint)` | Add a widget |
+| `add(unique_ptr<Widget>, Constraint)` | Add a widget; calls `on_mount()` if already running |
 | `add<W>(Constraint, args...)` | Construct in-place with constraint |
 | `add<W>(args...)` | Construct in-place, constraint from `flex` |
+| `remove(Widget*)` | Remove and unmount a specific child; rebuilds focus list |
+| `clear()` | Remove and unmount all children; rebuilds focus list |
 | `scroll_to(int y)` | Set scroll offset absolutely |
 | `scroll_by(int delta)` | Adjust scroll offset by delta |
 | `scroll_y()` | Returns current scroll offset |
@@ -1498,9 +1500,32 @@ Canvas child_canvas = canvas.sub_canvas(absolute_rect);
 
 ## 8. Patterns & Recipes
 
-### Dynamic list (retained-mode)
+### Dynamic widget add/remove
 
-Strata does not support adding/removing widgets at runtime. Use the pre-allocated slot pattern:
+Widgets can be added, removed, or cleared from any `Container` (or `ScrollView`) at runtime — even while `app.run()` is executing. `on_mount()` / `on_unmount()` are called automatically and the focus list is rebuilt so new widgets immediately participate in Tab cycling.
+
+```cpp
+strata::Container* list = nullptr;
+
+populate(app, {
+    Col({ ScrollView({}).bind(list) })
+});
+
+// From any callback or timer — safe to call while the app is running:
+list->add<Label>(fixed(1), "Item added at runtime");
+
+// Remove a specific widget (unmount + focus rebuild):
+list->remove(some_label_ptr);
+
+// Clear all children (unmounts each, fixes the pre-existing constraints bug too):
+list->clear();
+```
+
+This works for `App::add<W>()`, `Container::add<W>()`, and `ScrollView::add<W>()` — any call to `add()` on an already-mounted container triggers the lifecycle automatically.
+
+### Dynamic list (retained-mode slot pattern)
+
+When the set of widgets is fixed but their content changes frequently, the pre-allocated slot pattern avoids repeated add/remove overhead:
 
 ```cpp
 static const int MAX = 100;
