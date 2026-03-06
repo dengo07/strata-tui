@@ -227,61 +227,38 @@ int main() {
 
 ### 2c. To-Do List
 
-An `Input` for adding items, `Checkbox` widgets added and removed dynamically, a `Select` filter, and a modal confirmation for deletion — all in a scrollable panel.
+An `Input` for adding items, `ForEach` for rendering the reactive list, a `Select` filter, and a modal confirmation for deletion — all in one panel. Mutating state automatically updates the list and stats.
 
 ```cpp
 #include <Strata/ui.hpp>
 using namespace strata::ui;
-#include <vector>
 #include <string>
 #include <algorithm>
 
 int main() {
     App app;
 
-    // widget pointer stored per item so we can detect focus and call remove()
-    struct Item { std::string text; bool done = false; strata::Checkbox* widget = nullptr; };
-    std::vector<Item> items;
+    struct Item { int id; std::string text; bool done = false; };
 
-    strata::Label*      stats_lbl    = nullptr;
-    strata::Input*      input_widget = nullptr;
-    strata::Select*     filter_sel   = nullptr;
-    strata::ScrollView* sv           = nullptr;
-    int del_idx    = -1;
-    int confirm_id = -1;
+    // ── Reactive state ─────────────────────────────────────────────────────
+    auto items = make_state(std::vector<Item>{});
+    int  next_id     = 0;
+    int  filter_mode = 0;   // 0=All  1=Active  2=Done
+    int  selected_id = -1;  // id of the last focused checkbox
 
-    auto update_stats = [&]{
+    strata::Label* stats_lbl    = nullptr;
+    strata::Input* input_widget = nullptr;
+    int            confirm_id   = -1;
+    std::string    del_text;   // text of item pending deletion
+
+    // Stats label subscribes to items — updates automatically on every change
+    items.on_change([&]{
         if (!stats_lbl) return;
-        int done = (int)std::count_if(items.begin(), items.end(),
-                        [](const Item& it){ return it.done; });
+        int done = 0;
+        for (const auto& it : items.get()) if (it.done) ++done;
         stats_lbl->set_text(std::to_string(done) + "/" +
-                            std::to_string(items.size()) + " done");
-    };
-
-    // rebuild_list() clears the ScrollView and re-adds one Checkbox per visible item.
-    // Called on add, delete, and filter change.
-    std::function<void()> rebuild_list;
-    rebuild_list = [&]{
-        if (!sv) return;
-        int mode = filter_sel ? filter_sel->selected() : 0;
-        sv->clear();  // unmounts all existing checkboxes
-        for (int i = 0; i < (int)items.size(); ++i) {
-            items[i].widget = nullptr;
-            if (mode == 1 && items[i].done)  continue;  // Active: hide done
-            if (mode == 2 && !items[i].done) continue;  // Done:   hide active
-            auto* cb = sv->add<strata::Checkbox>(
-                strata::Constraint::fixed(1), " " + items[i].text, items[i].done);
-            cb->set_focus_group("list");
-            cb->set_style(Style{}.with_fg(color::White));
-            cb->set_focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan));
-            cb->on_change = [&, i](bool checked){
-                items[i].done = checked;
-                update_stats();
-            };
-            items[i].widget = cb;
-        }
-        update_stats();
-    };
+                            std::to_string(items->size()) + " done");
+    });
 
     populate(app, {
         Block(" To-Do List ")
@@ -292,33 +269,51 @@ int main() {
                         Label("  Add: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(7)),
                         Input()
                             .placeholder("type and press Enter…")
-                            .group("input")
-                            .size(fill())
-                            .bind(input_widget)
-                            .submit([&](const std::string& val){
-                                if (!val.empty()) {
-                                    items.push_back({val, false, nullptr});
-                                    input_widget->set_value("");
-                                    rebuild_list();
-                                }
+                            .group("input").size(fill()).bind(input_widget)
+                            .submit([&](const std::string& val) {
+                                if (val.empty()) return;
+                                int id = next_id++;
+                                items.mutate([&](auto& v){ v.push_back({id, val}); });
+                                input_widget->set_value("");
                             }),
                     }).size(fixed(1)),
                     Row({
                         Label(" Filter: ").style(Style{}.with_fg(color::BrightBlack)).size(fixed(9)),
                         Select()
                             .items({"All", "Active", "Done"})
-                            .group("filter")
-                            .size(fill())
-                            .bind(filter_sel)
-                            .change([&](int, const std::string&){ rebuild_list(); }),
-                        Label("").style(Style{}.with_fg(color::BrightBlack))
+                            .group("filter").size(fill())
+                            .change([&](int mode, const std::string&) {
+                                filter_mode = mode;
+                                // Empty mutate — triggers ForEach to re-filter
+                                items.mutate([](auto&){});
+                            }),
+                        Label("0/0 done").style(Style{}.with_fg(color::BrightBlack))
                             .size(fixed(10)).bind(stats_lbl),
                     }).size(fixed(1)),
                     Label("").size(fixed(1)),
-                    ScrollView({}).group("list").bind(sv),  // starts empty
+
+                    // ForEach re-runs whenever items changes (including filter change above)
+                    ForEach(items, [&](const Item& item, int) -> std::optional<Node> {
+                        if (filter_mode == 1 && item.done)  return std::nullopt;
+                        if (filter_mode == 2 && !item.done) return std::nullopt;
+                        int id = item.id;
+                        return Checkbox(item.text)
+                            .checked(item.done)
+                            .group("list")
+                            .style(Style{}.with_fg(color::White))
+                            .focused_style(Style{}.with_fg(color::Black).with_bg(color::Cyan))
+                            .focused([&selected_id, id]{ selected_id = id; })
+                            .change([&items, id](bool checked) {
+                                items.mutate([id, checked](auto& v) {
+                                    for (auto& it : v)
+                                        if (it.id == id) { it.done = checked; break; }
+                                });
+                            })
+                            .size(fixed(1));
+                    }),
+
                     Label("  Tab: switch section  ·  d: delete item")
-                        .style(Style{}.with_fg(color::BrightBlack))
-                        .size(fixed(1)),
+                        .style(Style{}.with_fg(color::BrightBlack)).size(fixed(1)),
                 })
             )
     });
@@ -326,47 +321,49 @@ int main() {
     app.on_event = [&](const Event& e) {
         if (app.has_modal()) return;
         if (is_char(e, 'q')) app.quit();
-        if (is_char(e, 'd')) {
-            del_idx = -1;
-            for (int i = 0; i < (int)items.size(); ++i)
-                if (items[i].widget && items[i].widget->is_focused()) { del_idx = i; break; }
+        if (is_char(e, 'd') && selected_id >= 0) {
+            // Find text for the modal message
+            del_text.clear();
+            for (const auto& it : items.get())
+                if (it.id == selected_id) { del_text = it.text; break; }
+            if (del_text.empty()) return;
 
-            if (del_idx >= 0) {
-                confirm_id = app.open_modal(
-                    ModalDesc()
-                        .title(" Delete Item ")
-                        .size(44, 8)
-                        .border(Style{}.with_fg(color::Red))
-                        .on_close([&]{ app.close_modal(confirm_id); })
-                        .inner(
-                            Col({
-                                Label("  Delete \"" + items[del_idx].text + "\"?")
-                                    .style(Style{}.with_fg(color::White))
-                                    .size(fixed(1)),
-                                Label("").size(fixed(1)),
-                                Row({
-                                    Button("Yes")
-                                        .style(Style{}.with_bg(color::Red).with_fg(color::White).with_bold())
-                                        .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
-                                        .click([&]{
-                                            app.close_modal(confirm_id);
-                                            if (del_idx >= 0 && del_idx < (int)items.size()) {
-                                                items.erase(items.begin() + del_idx);
-                                                rebuild_list();
-                                            }
-                                        })
-                                        .size(fixed(10)).cross(fixed(4)),
-                                    Button("No")
-                                        .style(Style{}.with_bg(color::BrightBlack).with_fg(color::White))
-                                        .focused_style(Style{}.with_bg(color::White).with_fg(color::Black))
-                                        .click([&]{ app.close_modal(confirm_id); })
-                                        .size(fixed(10)).cross(fixed(4)),
-                                }).gap(2).justify(Layout::Justify::Center).size(fixed(4)),
-                            }).justify(Layout::Justify::Center)
-                        )
-                        .build_modal()
-                );
-            }
+            confirm_id = app.open_modal(
+                ModalDesc()
+                    .title(" Delete Item ")
+                    .size(44, 8)
+                    .border(Style{}.with_fg(color::Red))
+                    .on_close([&]{ app.close_modal(confirm_id); })
+                    .inner(
+                        Col({
+                            Label("  Delete \"" + del_text + "\"?")
+                                .style(Style{}.with_fg(color::White)).size(fixed(1)),
+                            Label("").size(fixed(1)),
+                            Row({
+                                Button("Yes")
+                                    .style(Style{}.with_bg(color::Red).with_fg(color::White).with_bold())
+                                    .focused_style(Style{}.with_bg(color::BrightRed).with_fg(color::White).with_bold())
+                                    .click([&]{
+                                        app.close_modal(confirm_id);
+                                        int sid = selected_id;
+                                        items.mutate([sid](auto& v) {
+                                            v.erase(std::remove_if(v.begin(), v.end(),
+                                                [sid](const Item& it){ return it.id == sid; }),
+                                                v.end());
+                                        });
+                                        selected_id = -1;
+                                    })
+                                    .size(fixed(10)).cross(fixed(4)),
+                                Button("No")
+                                    .style(Style{}.with_bg(color::BrightBlack).with_fg(color::White))
+                                    .focused_style(Style{}.with_bg(color::White).with_fg(color::Black))
+                                    .click([&]{ app.close_modal(confirm_id); })
+                                    .size(fixed(10)).cross(fixed(4)),
+                            }).gap(2).justify(Layout::Justify::Center).size(fixed(4)),
+                        }).justify(Layout::Justify::Center)
+                    )
+                    .build_modal()
+            );
         }
     };
 
@@ -375,12 +372,14 @@ int main() {
 ```
 
 **Key ideas:**
-- **No `MAX_ITEMS` cap**: `rebuild_list()` calls `sv->clear()` then `sv->add<strata::Checkbox>()` for each visible item — `on_mount()` and focus rebuild happen automatically for every add.
-- **`items[i].widget`**: each `Item` stores the raw pointer to its live `Checkbox`. After `sv->clear()` the old pointers are dangling (the widgets are destroyed), but `rebuild_list()` immediately resets them to the freshly created widgets.
-- **Filter**: `rebuild_list()` skips items that don't match the current mode, so only matching rows exist as real widgets — no empty placeholder slots.
-- **Delete**: `items.erase()` removes the data, then `rebuild_list()` tears down and rebuilds the widget list. No index bookkeeping beyond the `del_idx` captured before the modal opens.
-- **Stats label** is a plain `Label*` updated by `update_stats()` — no special widget needed, just a bound pointer and `set_text()`.
-- **`app.has_modal()`** guard in `on_event` prevents global hotkeys from firing while the modal is open.
+- **`make_state`** replaces `std::vector<Item>` — every `mutate()` fires all listeners.
+- **`ForEach`** renders the list. The builder lambda captures `filter_mode` by reference; returning `std::nullopt` for non-matching items acts as a filter with no extra state.
+- **Filter change**: `items.mutate([](auto&){})` is an empty (no-op) mutation that fires listeners, forcing `ForEach` to re-run the builder with the new `filter_mode` value.
+- **`.focused(fn)`** on each `Checkbox` sets `selected_id` when focus arrives — replaces the old `Item::widget` pointer and `is_focused()` scan.
+- **`.change(fn)`** on each `Checkbox` calls `items.mutate(...)` with the item's stable `id`. Mutating triggers the stats subscriber and the `ForEach` rebuild in one step.
+- **Stats label** subscribes once via `items.on_change(...)` — no explicit `update_stats()` call needed anywhere else.
+- **Delete** uses a modal for confirmation; the `Yes` button calls `items.mutate(...)` to erase by `id` — no index arithmetic needed.
+- **`app.has_modal()`** guard prevents global hotkeys from firing while the modal is open.
 
 ### 2d. Reactive Kanban Board
 
