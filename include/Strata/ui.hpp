@@ -627,7 +627,7 @@ public:
             for (int i = 0; i < (int)items.size(); ++i) {
                 auto node_opt = builder(items[i], i);
                 if (node_opt)
-                    raw->add(node_opt->build(), node_opt->constraint());
+                    raw->add(node_opt->build(), node_opt->constraint(), node_opt->cross_constraint());
             }
         });
 

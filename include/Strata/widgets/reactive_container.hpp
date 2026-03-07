@@ -26,7 +26,8 @@ public:
 
     // Called by the ForEach builder during rebuild to add a child widget.
     void add(std::unique_ptr<Widget> w,
-             Constraint c = Constraint::fill());
+             Constraint main  = Constraint::fill(),
+             Constraint cross = Constraint::fill());
 
     // Wiring — set by ForEach before the widget is mounted.
     void set_rebuild(std::function<void()> fn);
@@ -48,6 +49,7 @@ private:
     Layout                               layout_;
     std::vector<std::unique_ptr<Widget>> children_;
     std::vector<Constraint>              constraints_;
+    std::vector<Constraint>              cross_constraints_;
 
     std::function<void()>                            rebuild_fn_;
     std::function<int(std::function<void()>)>        subscribe_fn_;

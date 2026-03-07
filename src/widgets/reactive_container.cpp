@@ -4,10 +4,11 @@ namespace strata {
 
 ReactiveContainer::ReactiveContainer(Layout layout) : layout_(layout) {}
 
-void ReactiveContainer::add(std::unique_ptr<Widget> w, Constraint c) {
+void ReactiveContainer::add(std::unique_ptr<Widget> w, Constraint main, Constraint cross) {
     w->parent_ = this;
     children_.push_back(std::move(w));
-    constraints_.push_back(c);
+    constraints_.push_back(main);
+    cross_constraints_.push_back(cross);
 }
 
 void ReactiveContainer::set_rebuild(std::function<void()> fn) {
@@ -42,6 +43,7 @@ void ReactiveContainer::refresh() {
         for (auto& child : children_) Widget::s_on_subtree_removed_(child.get());
     children_.clear();
     constraints_.clear();
+    cross_constraints_.clear();
 
     // 2. Rebuild: rebuild_fn_ calls add() to populate new children.
     if (rebuild_fn_) rebuild_fn_();
@@ -60,11 +62,29 @@ void ReactiveContainer::render(Canvas& canvas) {
     dirty_ = false;
     if (children_.empty()) return;
 
+    const int full_cross = canvas.area().width;
     auto rects = layout_.split(canvas.area(), constraints_);
     for (std::size_t i = 0; i < children_.size(); ++i) {
         if (i >= rects.size() || rects[i].empty()) continue;
-        children_[i]->last_rect_ = rects[i];
-        Canvas child_canvas = canvas.sub_canvas(rects[i]);
+        Rect r = rects[i];
+
+        // Apply per-child cross (width) constraint
+        if (i < cross_constraints_.size()) {
+            const Constraint& cc = cross_constraints_[i];
+            int child_cross = full_cross;
+            switch (cc.type) {
+                case Constraint::Type::Fixed:
+                case Constraint::Type::Max:
+                    child_cross = std::min(cc.value, full_cross); break;
+                case Constraint::Type::Percentage:
+                    child_cross = std::max(0, std::min((full_cross * cc.value) / 100, full_cross)); break;
+                default: break; // Fill/Min → stretch
+            }
+            r.width = child_cross;
+        }
+
+        children_[i]->last_rect_ = r;
+        Canvas child_canvas = canvas.sub_canvas(r);
         children_[i]->render(child_canvas);
         children_[i]->dirty_ = false;
     }
