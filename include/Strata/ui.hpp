@@ -515,26 +515,29 @@ public:
 // Container descriptor that scrolls its children vertically.
 class ScrollView {
     std::vector<Node>              children_;
-    strata::Constraint             size_      = strata::Constraint::fill();
-    strata::Constraint             cross_     = strata::Constraint::fill();
-    int                            tab_index_ = 0;
+    strata::Constraint             size_        = strata::Constraint::fill();
+    strata::Constraint             cross_       = strata::Constraint::fill();
+    strata::Layout::Align          cross_align_ = strata::Layout::Align::Start;
+    int                            tab_index_   = 0;
     std::string                    focus_group_;
-    mutable strata::ScrollView**   ref_       = nullptr;
+    mutable strata::ScrollView**   ref_         = nullptr;
 public:
     explicit ScrollView(std::initializer_list<Node> children) : children_(children) {}
     explicit ScrollView(std::vector<Node> children) : children_(std::move(children)) {}
 
-    ScrollView& size(strata::Constraint c)     { size_      = c;            return *this; }
-    ScrollView& cross(strata::Constraint c)    { cross_     = c;            return *this; }
-    ScrollView& tab_index(int i)               { tab_index_ = i;            return *this; }
-    ScrollView& group(std::string g)           { focus_group_ = std::move(g); return *this; }
-    ScrollView& bind(strata::ScrollView*& ref) { ref_       = &ref;         return *this; }
+    ScrollView& size(strata::Constraint c)          { size_        = c;            return *this; }
+    ScrollView& cross(strata::Constraint c)         { cross_       = c;            return *this; }
+    ScrollView& cross_align(strata::Layout::Align a){ cross_align_ = a;            return *this; }
+    ScrollView& tab_index(int i)                    { tab_index_   = i;            return *this; }
+    ScrollView& group(std::string g)                { focus_group_ = std::move(g); return *this; }
+    ScrollView& bind(strata::ScrollView*& ref)      { ref_         = &ref;         return *this; }
 
     std::unique_ptr<strata::Widget> build() const {
         auto w = std::make_unique<strata::ScrollView>(
             strata::Layout(strata::Layout::Direction::Vertical));
+        w->set_cross_align(cross_align_);
         for (const Node& n : children_)
-            w->add(n.build(), n.constraint());
+            w->add(n.build(), n.constraint(), n.cross_constraint());
         w->tab_index = tab_index_;
         if (!focus_group_.empty()) w->set_focus_group(focus_group_);
         if (ref_) *ref_ = w.get();

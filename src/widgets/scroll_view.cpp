@@ -8,10 +8,11 @@ namespace strata {
 
 ScrollView::ScrollView(Layout layout) : layout_(layout) {}
 
-Widget* ScrollView::add(std::unique_ptr<Widget> w, Constraint c) {
+Widget* ScrollView::add(std::unique_ptr<Widget> w, Constraint main, Constraint cross) {
     w->parent_ = this;
     children_.push_back(std::move(w));
-    constraints_.push_back(c);
+    constraints_.push_back(main);
+    cross_constraints_.push_back(cross);
     mark_dirty();
     Widget* raw = children_.back().get();
     if (mounted_ && Widget::s_on_subtree_added_) Widget::s_on_subtree_added_(raw);
@@ -24,6 +25,7 @@ void ScrollView::remove(Widget* w) {
             if (mounted_ && Widget::s_on_subtree_removed_) Widget::s_on_subtree_removed_(children_[i].get());
             children_.erase(children_.begin() + i);
             constraints_.erase(constraints_.begin() + i);
+            cross_constraints_.erase(cross_constraints_.begin() + i);
             mark_dirty();
             if (mounted_ && Widget::s_on_focus_rebuild_) Widget::s_on_focus_rebuild_();
             return;
@@ -36,6 +38,7 @@ void ScrollView::clear() {
         for (auto& child : children_) Widget::s_on_subtree_removed_(child.get());
     children_.clear();
     constraints_.clear();
+    cross_constraints_.clear();
     scroll_y_ = 0;
     mark_dirty();
     if (mounted_ && Widget::s_on_focus_rebuild_) Widget::s_on_focus_rebuild_();
@@ -91,10 +94,36 @@ void ScrollView::render(Canvas& canvas) {
     scroll_y_ = std::max(0, std::min(scroll_y_, max_scroll));
 
     // Render each child shifted by scroll offset
+    const int full_cross = need_bar ? vis_w - 1 : vis_w;
     for (int i = 0; i < static_cast<int>(children_.size()); ++i) {
-        Rect shifted = {rects[i].x, rects[i].y - scroll_y_, rects[i].width, rects[i].height};
-        children_[i]->last_rect_ = shifted;
-        Canvas child_canvas = canvas.sub_canvas(shifted);
+        Rect r = {rects[i].x, rects[i].y - scroll_y_, rects[i].width, rects[i].height};
+
+        // Apply per-child cross (width) constraint
+        if (i < static_cast<int>(cross_constraints_.size())) {
+            const Constraint& cc = cross_constraints_[i];
+            int child_cross = full_cross;
+            switch (cc.type) {
+                case Constraint::Type::Fixed:
+                case Constraint::Type::Max:
+                    child_cross = std::min(cc.value, full_cross); break;
+                case Constraint::Type::Percentage:
+                    child_cross = std::max(0, std::min((full_cross * cc.value) / 100, full_cross)); break;
+                default: break; // Fill/Min → stretch
+            }
+            if (child_cross < full_cross) {
+                int offset = 0;
+                switch (cross_align_) {
+                    case Layout::Align::Center: offset = (full_cross - child_cross) / 2; break;
+                    case Layout::Align::End:    offset = full_cross - child_cross; break;
+                    default: break;
+                }
+                r.x += offset;
+                r.width = child_cross;
+            }
+        }
+
+        children_[i]->last_rect_ = r;
+        Canvas child_canvas = canvas.sub_canvas(r);
         if (!child_canvas.area().empty())
             children_[i]->render(child_canvas);
         children_[i]->dirty_ = false;

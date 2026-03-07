@@ -15,14 +15,20 @@ namespace strata {
 class ScrollView : public Widget {
     std::vector<std::unique_ptr<Widget>> children_;
     std::vector<Constraint>              constraints_;
+    std::vector<Constraint>              cross_constraints_;
     Layout                               layout_;
+    Layout::Align                        cross_align_ = Layout::Align::Start;
     int                                  scroll_y_ = 0;
 
 public:
     explicit ScrollView(Layout layout = Layout(Layout::Direction::Vertical));
 
-    // Add a widget with an explicit constraint
-    Widget* add(std::unique_ptr<Widget> w, Constraint c = Constraint::fill());
+    // Add a widget with explicit main-axis and optional cross-axis constraint.
+    Widget* add(std::unique_ptr<Widget> w,
+                Constraint main  = Constraint::fill(),
+                Constraint cross = Constraint::fill());
+
+    ScrollView& set_cross_align(Layout::Align a) { cross_align_ = a; return *this; }
 
     // Construct in-place with explicit constraint (first arg)
     template<typename W, typename... Args>
