@@ -13,6 +13,7 @@ class Block;
 class ScrollView;
 class Modal;
 class ReactiveContainer;
+class Grid;
 
 class Widget {
     friend class App;
@@ -22,6 +23,7 @@ class Widget {
     friend class ScrollView;
     friend class Modal;
     friend class ReactiveContainer;
+    friend class Grid;
 
 protected:
     Widget* parent_  = nullptr;

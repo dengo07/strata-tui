@@ -134,6 +134,7 @@ Builds every descriptor in the list and adds the resulting widgets to the app's 
 |---|---|---|
 | `Col{ node, node, ... }` | Vertical | `Col{initializer_list<Node>}` |
 | `Row{ node, node, ... }` | Horizontal | `Row{initializer_list<Node>}` |
+| `Grid{ node, node, ... }` | 2-D grid (row-major) | `Grid{initializer_list<Node>}` |
 | `ScrollView{ node, ... }` | Vertical + scroll | `ScrollView{initializer_list<Node>}` |
 
 All container descriptors support:
@@ -155,6 +156,55 @@ Every leaf descriptor also accepts `.cross(Constraint)` to limit its cross-axis 
 ScrollView{ ... }
     .tab_index(-1)   // override tab order (-1 = first)
     .bind(sv_ptr)    // capture raw pointer after build
+```
+
+### Grid Descriptor
+
+`Grid` places children left-to-right, top-to-bottom (row-major). Column count is either fixed or computed automatically from the available width.
+
+```cpp
+Grid{ child, child, ... }
+    .size(Constraint)                    // overall size; default: fill()
+    .cross(Constraint)                   // overall cross-axis size; default: fill()
+    .cols(int)                           // fixed column count (0 = auto, default)
+    .min_col_width(int)                  // minimum column width for auto mode (default 10)
+    .gap(int)                            // gap between both columns and rows
+    .col_gap(int)                        // horizontal gap between columns only
+    .row_gap(int)                        // vertical gap between rows only
+    .col_constraints({ Constraint, ... })// per-column sizes, reused cyclically
+    .row_constraints({ Constraint, ... })// per-row sizes, reused cyclically
+    .bind(strata::Grid*& ref)
+```
+
+**Column count:**
+
+| Mode | How to activate | Behaviour |
+|---|---|---|
+| Fixed | `.cols(n)` | Always `n` columns, regardless of terminal width |
+| Auto (default) | Omit `.cols()` | Fits `floor((W + col_gap) / (min_col_width + col_gap))` columns; re-evaluated every frame so resizing the terminal reflows the grid |
+
+**Per-axis constraints** are reused cyclically when the vector is shorter than the actual column/row count:
+
+```cpp
+// Alternating fixed + fill columns
+Grid({ ... }).cols(4).col_constraints({ fixed(16), fill() })
+// → columns: fixed(16), fill(), fixed(16), fill()
+```
+
+**Examples:**
+
+```cpp
+// Fixed 3-column grid, 1-cell gap
+Grid({
+    Label("Mon"), Label("Tue"), Label("Wed"),
+    Label("Thu"), Label("Fri"), Label("Sat"),
+}).cols(3).gap(1)
+
+// Auto-fit: as many ≥15-char-wide columns as fit on screen
+Grid({ ... }).min_col_width(15)
+
+// 2 columns: first fixed at 20, second fills the rest
+Grid({ ... }).cols(2).col_constraints({ fixed(20), fill() })
 ```
 
 ### Block Descriptor
@@ -591,6 +641,7 @@ scroll_view->tab_index = -1;    // keyboard-scroll views often go first
 | ProgressBar | No |
 | Spinner | No |
 | Container | No |
+| Grid | No (children may be focusable) |
 | Block | No (delegates to inner) |
 
 ---
@@ -779,6 +830,36 @@ ScrollView{
 Imperative: `sv->add<W>(Constraint, args...)`, `sv->remove(Widget*)`, `sv->clear()`, `sv->scroll_to(int y)`, `sv->scroll_by(int delta)`, `sv->scroll_y()`.
 
 Calling `add()`, `remove()`, or `clear()` while the app is running automatically calls `on_mount()` / `on_unmount()` on the affected widgets and rebuilds the focus list.
+
+---
+
+### `Grid`
+
+Non-focusable. Two-dimensional layout container — children placed left-to-right, top-to-bottom (row-major order). Children may be any widget, including focusable ones.
+
+**Column count modes:**
+
+| Mode | Setting | Behaviour |
+|---|---|---|
+| Fixed | `set_cols(n)` | Always `n` columns |
+| Auto (default) | `set_min_col_width(n)` | Recomputes column count from canvas width each frame; responds to terminal resize |
+
+```cpp
+// Imperative — fixed 3 columns, 1-cell gap
+auto* grid = container->add<strata::Grid>();
+grid->set_cols(3)->set_gap(1);
+grid->add<strata::Label>("A");
+grid->add<strata::Label>("B");
+grid->add<strata::Label>("C");
+
+// Imperative — auto columns, minimum 12 chars wide
+auto* grid = app.add<strata::Grid>();
+grid->set_min_col_width(12)->set_col_gap(1);
+grid->add<strata::Button>("Item 1");
+grid->add<strata::Button>("Item 2");
+```
+
+Imperative: `set_cols(int)`, `set_min_col_width(int)`, `set_gap(int)`, `set_col_gap(int)`, `set_row_gap(int)`, `set_col_constraints(vector<Constraint>)`, `set_row_constraints(vector<Constraint>)`, `add<W>(args...)`, `remove(Widget*)`, `clear()`, `children()`.
 
 ---
 

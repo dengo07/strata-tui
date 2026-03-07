@@ -1162,6 +1162,58 @@ ForEach(cards, [](const Card& c, int) -> std::optional<Node> {
 
 > **Lifetime rule**: the `Reactive<T>` object must outlive the `ForEach` widget. In practice this means declaring it in the same scope as `App` (typically `main`).
 
+### `Grid` — Two-dimensional layout container
+
+Children are placed left-to-right, top-to-bottom (row-major order).
+
+```cpp
+Grid({ child, child, ... })
+    .size(Constraint)                      // overall size; default: fill()
+    .cross(Constraint)                     // overall cross-axis size; default: fill()
+    .cols(int)                             // fixed column count (0 = auto, default)
+    .min_col_width(int)                    // minimum column width for auto mode (default 10)
+    .gap(int)                              // gap between both columns and rows
+    .col_gap(int)                          // horizontal gap between columns only
+    .row_gap(int)                          // vertical gap between rows only
+    .col_constraints({Constraint, ...})    // per-column sizes, reused cyclically
+    .row_constraints({Constraint, ...})    // per-row sizes, reused cyclically
+    .bind(strata::Grid*& ref)
+```
+
+**Column count modes:**
+
+| Setting | Behaviour |
+|---|---|
+| `.cols(n)` | Fixed `n` columns regardless of terminal width |
+| No `.cols()` (default) | Auto: fits `floor((W + col_gap) / (min_col_width + col_gap))` columns — re-evaluated each frame, so it responds to terminal resize automatically |
+
+**Per-axis constraints** — reused cyclically if the vector is shorter than the actual count:
+
+```cpp
+// First column fixed at 20, rest fill equally
+Grid({...}).cols(3).col_constraints({ fixed(20), fill() })
+
+// Alternate tall and short rows
+Grid({...}).row_constraints({ fixed(3), fixed(1) })
+```
+
+**Examples:**
+
+```cpp
+// Fixed 3-column grid with a 1-cell gap
+Grid({
+    Label("A"), Label("B"), Label("C"),
+    Label("D"), Label("E"), Label("F"),
+}).cols(3).gap(1)
+
+// Auto-fit columns, minimum 15 chars wide each
+Grid({ ... }).min_col_width(15)
+
+// First column twice as wide as the others
+Grid({ ... }).cols(4)
+             .col_constraints({ fill(2), fill(1) })
+```
+
 ### Reactive state (`make_state` / `Reactive<T>`)
 
 ```cpp
@@ -1470,6 +1522,31 @@ ScrollView(Layout layout = Layout(Layout::Direction::Vertical))
 | PgUp | Scroll up (visible height − 1) |
 
 The `ScrollView` auto-scrolls to keep the currently focused descendant visible on every render pass.
+
+### Grid
+
+Two-dimensional layout container. Non-focusable (children may be focusable). Children are placed left-to-right, top-to-bottom (row-major order).
+
+```cpp
+Grid()
+```
+
+| Method | Description |
+|---|---|
+| `set_cols(int)` | Fixed column count. 0 = auto (default). |
+| `set_min_col_width(int)` | Minimum column width used in auto mode (default 10). |
+| `set_gap(int)` | Set both col_gap and row_gap. |
+| `set_col_gap(int)` | Horizontal gap between columns. |
+| `set_row_gap(int)` | Vertical gap between rows. |
+| `set_col_constraints(vector<Constraint>)` | Per-column size constraints, reused cyclically. |
+| `set_row_constraints(vector<Constraint>)` | Per-row size constraints, reused cyclically. |
+| `add<W>(args...)` | Construct child in-place; appended to the next cell. |
+| `add(unique_ptr<Widget>)` | Transfer ownership; appended to the next cell. |
+| `remove(Widget*)` | Remove and unmount a specific child; rebuilds focus list. |
+| `clear()` | Remove and unmount all children; rebuilds focus list. |
+| `children()` | Returns `const vector<unique_ptr<Widget>>&`. |
+
+In auto mode (no `set_cols()`), the column count is recomputed each frame from the available canvas width and `min_col_width`, so it responds to terminal resize automatically.
 
 ### Modal
 

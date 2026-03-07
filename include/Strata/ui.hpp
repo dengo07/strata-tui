@@ -647,4 +647,81 @@ public:
 template<typename T, typename F>
 ForEach(strata::Reactive<std::vector<T>>&, F&&) -> ForEach<T>;
 
+// ── Grid ──────────────────────────────────────────────────────────────────────
+// Two-dimensional layout container.
+//
+// Children are placed left-to-right, top-to-bottom (row-major order).
+//
+// Column count:
+//   .cols(n)           — fixed n columns
+//   .min_col_width(n)  — auto-size: fit as many columns of at least n chars wide
+//                        (default 10; used only when cols() is not set)
+//
+// Sizing:
+//   .col_constraints({...})  — per-column Constraint, reused cyclically
+//   .row_constraints({...})  — per-row   Constraint, reused cyclically
+//   Default: equal fill for both axes.
+//
+// Gaps:
+//   .gap(g)      — both axes
+//   .col_gap(g)  — horizontal gap between columns
+//   .row_gap(g)  — vertical gap between rows
+//
+// Example:
+//   Grid({
+//     Label("A"), Label("B"), Label("C"),
+//     Label("D"), Label("E"), Label("F"),
+//   }).cols(3).gap(1)
+class Grid {
+    std::vector<Node>                       children_;
+    strata::Constraint                      size_          = strata::Constraint::fill();
+    strata::Constraint                      cross_         = strata::Constraint::fill();
+    int                                     cols_          = 0;
+    int                                     min_col_width_ = 10;
+    int                                     col_gap_       = 0;
+    int                                     row_gap_       = 0;
+    std::vector<strata::Constraint>         col_constraints_;
+    std::vector<strata::Constraint>         row_constraints_;
+    mutable strata::Grid**                  ref_           = nullptr;
+public:
+    explicit Grid(std::initializer_list<Node> children) : children_(children) {}
+
+    Grid& size(strata::Constraint c)  { size_          = c; return *this; }
+    Grid& cross(strata::Constraint c) { cross_         = c; return *this; }
+
+    // Fixed column count (0 = auto).
+    Grid& cols(int n)                 { cols_          = n; return *this; }
+    // Minimum column width for auto mode.
+    Grid& min_col_width(int n)        { min_col_width_ = n; return *this; }
+    // Gap helpers.
+    Grid& gap(int g)                  { col_gap_ = g; row_gap_ = g; return *this; }
+    Grid& col_gap(int g)              { col_gap_       = g; return *this; }
+    Grid& row_gap(int g)              { row_gap_       = g; return *this; }
+    // Per-column size constraints (reused cyclically).
+    Grid& col_constraints(std::vector<strata::Constraint> cc) {
+        col_constraints_ = std::move(cc); return *this;
+    }
+    // Per-row size constraints (reused cyclically).
+    Grid& row_constraints(std::vector<strata::Constraint> rc) {
+        row_constraints_ = std::move(rc); return *this;
+    }
+
+    Grid& bind(strata::Grid*& ref) { ref_ = &ref; return *this; }
+
+    std::unique_ptr<strata::Widget> build() const {
+        auto g = std::make_unique<strata::Grid>();
+        if (cols_ > 0) g->set_cols(cols_);
+        g->set_min_col_width(min_col_width_);
+        g->set_col_gap(col_gap_);
+        g->set_row_gap(row_gap_);
+        if (!col_constraints_.empty()) g->set_col_constraints(col_constraints_);
+        if (!row_constraints_.empty()) g->set_row_constraints(row_constraints_);
+        for (const Node& n : children_) g->add(n.build());
+        if (ref_) *ref_ = g.get();
+        return g;
+    }
+    strata::Constraint constraint() const       { return size_; }
+    strata::Constraint cross_constraint() const { return cross_; }
+};
+
 } // namespace strata::ui
